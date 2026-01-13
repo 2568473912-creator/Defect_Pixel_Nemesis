@@ -128,6 +128,7 @@ class CyberApp(QMainWindow):
         self.win_3d = Surface3DViewer()
         self.apply_theme()
 
+
         # [新增] 记录鼠标在图片上的最后已知位置
         self.last_mouse_x = 0
         self.last_mouse_y = 0
