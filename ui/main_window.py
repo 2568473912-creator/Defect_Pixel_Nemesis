@@ -120,7 +120,7 @@ class CyberApp(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Defect Pixel Nemesis // V2.5 by Klay Wei")
+        self.setWindowTitle("Defect Pixel Nemesis // V3.0 by Klay Wei")
         self.resize(1600, 900)
 
 
@@ -135,8 +135,6 @@ class CyberApp(QMainWindow):
         self.current_data_cache = []
         self.cursor_lines = []  # <---【新增】用于存储当前的十字准星
 
-        self.status_lbl_coords = QLabel("X: -- Y: --")
-        self.statusBar().addPermanentWidget(self.status_lbl_coords)
 
         self.main_widget = QWidget()
         self.setCentralWidget(self.main_widget)
@@ -283,7 +281,7 @@ class CyberApp(QMainWindow):
                 final_val = val_view
 
         # 2. 更新文字标签
-        self.status_lbl_coords.setText(f"📍 X: {x}  Y: {y}  Val: {final_val}")
+        self.lbl_cursor_info.setText(f"📍 X: {x:<4} Y: {y:<4} 💡 Val: {final_val}")
         # [修改] 3D 地形实时更新逻辑
         if self.win_3d.isVisible():
 
