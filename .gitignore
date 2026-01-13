@@ -1,0 +1,25 @@
+# --- Python 标准忽略 ---
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# --- IDE 配置 (PyCharm/VSCode) ---
+.idea/
+.vscode/
+*.swp
+
+# --- 项目特定文件 (不上传数据库和配置) ---
+*.db
+*.sqlite3
+defects_v5.db
+config.ini
+
+# --- 输出文件 (防止上传测试图片和报告) ---
+*.log
+crop_output/
+matrix_crops/
+*_result.png
+*_Report.xlsx
+*_detail.csv
