@@ -1362,7 +1362,7 @@ class CyberApp(QMainWindow):
                 self.load_settings()  # 刷新列表
 
             # 触发分析
-            self.trigger_analysis(str(path))
+            # self.trigger_analysis(str(path))
 
     # 🟢 [新增] 槽函数：更新雷达框
     # 🟢 [补回] 槽函数：更新雷达框
