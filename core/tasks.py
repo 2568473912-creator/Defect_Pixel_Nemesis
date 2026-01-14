@@ -32,7 +32,8 @@ def process_single_image_task(f_path, out_dir, params, specs, snap_params, expor
         cv2.imwrite(str(out_dir / f"{f_path.stem}_result.png"), vis)
 
         # --- 4. 截图逻辑 & Excel数据准备 ---
-        saved_crops_for_excel = []  # 专门用于 Excel 的数据列表 (大写键)
+        saved_crops_for_excel = []
+        seen_cluster_ids = set()  # <--- [新增] 记录已截图的 ID
 
         if export_details:
             crop_dir = out_dir / "crops"
@@ -43,41 +44,51 @@ def process_single_image_task(f_path, out_dir, params, specs, snap_params, expor
 
             for d in data:
                 dtype = d.get('final_type', 'Single')
+                cid = d.get('cluster_id', 0)  # 获取 ID
+                full_crop_path_str = ""  # 默认为空
 
                 # 截图逻辑
                 if "Cluster" in dtype:
-                    gx, gy = d['gx'], d['gy']
-                    half = snap_radius
-                    y_s, y_e = max(0, int(gy - half)), min(h, int(gy + half))
-                    x_s, x_e = max(0, int(gx - half)), min(w, int(gx + half))
-                    src_crop = img[y_s:y_e, x_s:x_e]
+                    # 🟢 [核心修改] 只有当 Cluster ID 未出现过时，才截图
+                    # 如果 cid == 0 (异常情况)，则保持原样截图
+                    if cid == 0 or (cid > 0 and cid not in seen_cluster_ids):
+                        gx, gy = d['gx'], d['gy']
+                        half = snap_radius
+                        y_s, y_e = max(0, int(gy - half)), min(h, int(gy + half))
+                        x_s, x_e = max(0, int(gx - half)), min(w, int(gx + half))
+                        src_crop = img[y_s:y_e, x_s:x_e]
 
-                    if src_crop.size > 0:
-                        vis_crop = cv2.resize(src_crop, (snap_size, snap_size), interpolation=cv2.INTER_NEAREST)
-                        crop_filename = f"crop_{f_path.stem}_{dtype}_{saved_count}.png"
-                        full_crop_path = crop_dir / crop_filename
-                        cv2.imwrite(str(full_crop_path), vis_crop)
-                        saved_count += 1
+                        if src_crop.size > 0:
+                            vis_crop = cv2.resize(src_crop, (snap_size, snap_size), interpolation=cv2.INTER_NEAREST)
+                            # 文件名带上 ID
+                            crop_filename = f"crop_{f_path.stem}_CID{cid}_{saved_count}.png"
+                            full_crop_path = crop_dir / crop_filename
+                            cv2.imwrite(str(full_crop_path), vis_crop)
 
-                        # 更新 d 用于 CSV (保留小写键)
-                        d['CropPath'] = str(full_crop_path)
-                        d['Size'] = d.get('size', 1)
+                            full_crop_path_str = str(full_crop_path)
+                            saved_count += 1
 
-                        # 🟢 [修复 Excel Error 'CH']
-                        # 构造一个符合 Excel 表头要求的大写键字典
-                        excel_item = {
-                            "Filename": f_name,
-                            "CH": d['ch'],  # ch -> CH
-                            "Type": dtype,
-                            "Polarity": "White" if d.get('polarity') == 'Bright' else "Black",
-                            "X": d['gx'],  # gx -> X
-                            "Y": d['gy'],  # gy -> Y
-                            "Val": d['val'],  # val -> Val
-                            "Size": d.get('size', 1),
-                            "CropPath": str(full_crop_path)
-                        }
-                        saved_crops_for_excel.append(excel_item)
+                            # 标记该 ID 已处理
+                            if cid > 0: seen_cluster_ids.add(cid)
 
+                # 更新数据用于 CSV/Excel
+                d['CropPath'] = full_crop_path_str  # 没截图的就是空字符串
+                d['Size'] = d.get('size', 1)
+                d['ClusterID'] = cid  # <--- [新增] 将 ID 存入数据
+
+                excel_item = {
+                    "Filename": f_name,
+                    "Cluster ID": cid,  # <--- [新增] Excel 列
+                    "CH": d['ch'],
+                    "Type": dtype,
+                    "Polarity": "White" if d.get('polarity') == 'Bright' else "Black",
+                    "X": d['gx'],
+                    "Y": d['gy'],
+                    "Val": d['val'],
+                    "Size": d.get('size', 1),
+                    "CropPath": full_crop_path_str
+                }
+                saved_crops_for_excel.append(excel_item)
         # --- 5. 返回结果 ---
         return {
             'status': 'success',

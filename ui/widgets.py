@@ -509,30 +509,40 @@ class LazyGraphicsItem(QGraphicsItem):
 # 6. 放入 ZoomableGraphicsView 类
 class ZoomableGraphicsView(QGraphicsView):
     mouse_moved_signal = pyqtSignal(int, int, str)
+    # 🟢 [补回] 1. 定义视野变化信号 (用于雷达框联动)
+    view_changed_signal = pyqtSignal(QRectF)
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setRenderHint(QPainter.RenderHint.Antialiasing, False)  # 关闭抗锯齿，看像素点更清晰
-        self.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)  # 禁用平滑插值，保留马赛克
+        self.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        self.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self.setBackgroundBrush(QColor("#111"))
 
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
 
+        # 🟢 [关键修复] 2. 开启鼠标追踪，否则不按键时拿不到坐标/数值
+        self.setMouseTracking(True)
+
         self.scene_obj = QGraphicsScene(self)
         self.setScene(self.scene_obj)
 
-        # 移除旧的 QGraphicsPixmapItem，改用我们的 LazyItem
         self.img_item = None
-
         self.cv_img_ref = None
         self.highlight_item = None
         self.minimap = MiniMapOverlay(self)
 
-    def set_image(self, img_cv):
+    # 🟢 [补回] 3. 发送视野信号的辅助函数
+    def emit_view_rect(self):
+        if self.scene():
+            # 获取当前视口在场景中的矩形范围
+            view_rect = self.mapToScene(self.viewport().rect()).boundingRect()
+            self.view_changed_signal.emit(view_rect)
+
+    def set_image(self, img_cv, maintain_view=False):
         self.cv_img_ref = img_cv
-        self.scene_obj.clear()  # 清空旧图元
+        self.scene_obj.clear()
         self.highlight_item = None
 
         if img_cv is None:
@@ -541,17 +551,17 @@ class ZoomableGraphicsView(QGraphicsView):
 
         h, w = img_cv.shape[:2]
 
-        # 使用动态懒加载图元
         self.img_item = LazyGraphicsItem(img_cv)
         self.scene_obj.addItem(self.img_item)
-
         self.setSceneRect(0, 0, w, h)
 
-        # 更新小地图 (传入预览图即可)
         self.minimap.update_data(self.img_item.preview_pixmap)
 
-        # 自动适应窗口
-        self.fitInView(self.scene_obj.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+        if not maintain_view:
+            self.fitInView(self.scene_obj.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+
+        # 🟢 [补回] 视图改变后发送信号
+        self.emit_view_rect()
 
     def highlight_defect(self, x, y, size=30):
         if self.highlight_item:
@@ -559,23 +569,19 @@ class ZoomableGraphicsView(QGraphicsView):
 
         pen = QPen(Qt.GlobalColor.cyan)
         pen.setWidth(2)
-        # 现在的坐标是 1:1 的真实坐标，不需要缩放
         rect = QRectF(x - size / 2, y - size / 2, size, size)
         self.highlight_item = self.scene_obj.addRect(rect, pen)
-
         self.centerOn(x, y)
-        # 稍微放大一点，确保能看清坏点
-        #self.scale(1.5, 1.5)
         self.minimap.update()
+        self.emit_view_rect()  # 🟢
 
     def wheelEvent(self, event):
         zoom_in = event.angleDelta().y() > 0
         factor = 1.25 if zoom_in else 1 / 1.25
         self.scale(factor, factor)
-
-        # 触发重绘以更新 LOD
         self.viewport().update()
         self.minimap.update()
+        self.emit_view_rect()  # 🟢
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -585,20 +591,27 @@ class ZoomableGraphicsView(QGraphicsView):
             x = self.width() - mw - margin
             y = self.height() - mh - margin
             self.minimap.move(x, y)
+        self.emit_view_rect()  # 🟢
 
     def scrollContentsBy(self, dx, dy):
         super().scrollContentsBy(dx, dy)
         self.minimap.update()
+        self.emit_view_rect()  # 🟢
+
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        self.emit_view_rect()  # 🟢
 
     def mouseMoveEvent(self, event):
         super().mouseMoveEvent(event)
+        # 🟢 这里的逻辑现在因为 setMouseTracking(True) 而能实时触发了
         if self.cv_img_ref is not None:
             scene_pos = self.mapToScene(event.pos())
             x, y = int(scene_pos.x()), int(scene_pos.y())
             h, w = self.cv_img_ref.shape[:2]
 
             if 0 <= x < w and 0 <= y < h:
-                # 直接读取原图，数值绝对准确
+                # 简单读取数值
                 if len(self.cv_img_ref.shape) == 2:
                     val = str(self.cv_img_ref[y, x])
                 else:
@@ -610,4 +623,6 @@ class ZoomableGraphicsView(QGraphicsView):
         v_bar = self.verticalScrollBar()
         h_bar.setValue(h_bar.value() + dx)
         v_bar.setValue(v_bar.value() + dy)
+        self.emit_view_rect()  # 🟢
+
     pass

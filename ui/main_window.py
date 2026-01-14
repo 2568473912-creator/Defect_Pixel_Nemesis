@@ -366,36 +366,42 @@ class CyberApp(QMainWindow):
             QLabel#ResultPass { background-color: rgba(0, 230, 118, 0.2); color: #00e676; border: 2px solid #00e676; }
             QLabel#ResultFail { background-color: rgba(255, 23, 68, 0.2); color: #ff1744; border: 2px solid #ff1744; }
         """)
+
     # =================================================================
-    # 请完全替换 CyberApp 类中的 init_single_mode 方法
+    # 🟢 [修复版] init_single_mode (修复 zoom_img 初始化顺序)
     # =================================================================
     def init_single_mode(self):
         # 1. 容器与分割器
-        root_layout = QHBoxLayout(self.main_widget)  # <--- 关键修改：挂载到 self.main_widget
+        root_layout = QHBoxLayout(self.main_widget)
         root_layout.setContentsMargins(0, 0, 0, 0)
 
         h_splitter = QSplitter(Qt.Orientation.Horizontal)
         root_layout.addWidget(h_splitter)
 
-        # 2. 左侧面板
-        self.left_panel = QFrame();
+        # ==========================================
+        # 2. 左侧面板 (Left Panel)
+        # ==========================================
+        self.left_panel = QFrame()
         self.left_panel.setMinimumWidth(380)
-        lp_layout = QVBoxLayout(self.left_panel);
+        lp_layout = QVBoxLayout(self.left_panel)
         lp_layout.setContentsMargins(0, 0, 0, 0)
-        v_splitter = PyQt6.QtWidgets.QSplitter(Qt.Orientation.Vertical);
+
+        v_splitter = PyQt6.QtWidgets.QSplitter(Qt.Orientation.Vertical)
         v_splitter.setHandleWidth(4)
         v_splitter.setStyleSheet(
             "QSplitter::handle { background-color: #2a2a2a; } QSplitter::handle:hover { background-color: #00e676; }")
         lp_layout.addWidget(v_splitter)
 
         # --- 2.1 文件浏览器 ---
-        top_widget = QWidget();
-        top_layout = QVBoxLayout(top_widget);
+        top_widget = QWidget()
+        top_layout = QVBoxLayout(top_widget)
         top_layout.setContentsMargins(10, 10, 10, 5)
-        grp_files = QGroupBox("FILE BROWSER");
+
+        grp_files = QGroupBox("FILE BROWSER")
         f_layout = QVBoxLayout(grp_files)
-        self.btn_sel_single_dir = QPushButton("📂 Open Folder");
-        self.btn_sel_single_dir.clicked.connect(self.open_single_folder);
+
+        self.btn_sel_single_dir = QPushButton("📂 Open Folder")
+        self.btn_sel_single_dir.clicked.connect(self.open_single_folder)
         self.btn_sel_single_dir.setStyleSheet("background-color: #333; border: 1px solid #555; padding: 6px;")
         f_layout.addWidget(self.btn_sel_single_dir)
 
@@ -406,13 +412,11 @@ class CyberApp(QMainWindow):
             QListWidget::item:selected { background: #00e676; color: black; }
             QListWidget::item:hover { background: #333; }
         """)
-        self.file_list.itemClicked.connect(self.on_file_list_clicked);
+        self.file_list.itemClicked.connect(self.on_file_list_clicked)
         f_layout.addWidget(self.file_list)
 
-        # 👇👇👇 [新增代码开始] 👇👇👇
-        # 创建一个水平布局来放两个功能按钮
+        # 功能按钮
         h_funcs = QHBoxLayout()
-
         self.btn_open_batch = QPushButton("⚡ BATCH PROCESS")
         self.btn_open_batch.setStyleSheet("background-color: #6200ea; font-weight: bold;")
         self.btn_open_batch.clicked.connect(self.open_batch_dialog)
@@ -420,323 +424,271 @@ class CyberApp(QMainWindow):
 
         self.btn_crop_tool = QPushButton("✂️ BATCH CROP")
         self.btn_crop_tool.setStyleSheet("background-color: #0091ea; font-weight: bold;")
-        self.btn_crop_tool.clicked.connect(self.open_crop_dialog)  # 绑定新函数
+        self.btn_crop_tool.clicked.connect(self.open_crop_dialog)
         h_funcs.addWidget(self.btn_crop_tool)
-
         f_layout.addLayout(h_funcs)
-        # 👆👆👆 [新增代码结束] 👆👆👆
 
-
-        top_layout.addWidget(grp_files);
+        top_layout.addWidget(grp_files)
         v_splitter.addWidget(top_widget)
 
         # --- 2.2 参数与控制 ---
-        mid_widget = QWidget();
-        mid_layout = QVBoxLayout(mid_widget);
-        mid_layout.setContentsMargins(10, 5, 10, 5);
+        mid_widget = QWidget()
+        mid_layout = QVBoxLayout(mid_widget)
+        mid_layout.setContentsMargins(10, 5, 10, 5)
         mid_layout.setSpacing(8)
-        self.btn_toggle_param = QPushButton("▼ PARAMETERS & HISTOGRAM");
-        self.btn_toggle_param.setCheckable(True);
+
+        self.btn_toggle_param = QPushButton("▼ PARAMETERS & HISTOGRAM")
+        self.btn_toggle_param.setCheckable(True)
         self.btn_toggle_param.setChecked(True)
         self.btn_toggle_param.setStyleSheet(
             "QPushButton { text-align: left; font-weight: bold; border: none; background: transparent; color: #888; padding: 5px; } QPushButton:checked { color: #00e676; }")
-        self.btn_toggle_param.toggled.connect(self.on_param_toggle);
+        self.btn_toggle_param.toggled.connect(self.on_param_toggle)
         mid_layout.addWidget(self.btn_toggle_param)
 
-        self.grp_param = QGroupBox();
+        self.grp_param = QGroupBox()
         self.grp_param.setStyleSheet("QGroupBox { border: 1px solid #333; margin-top: 0px; padding-top: 5px; }")
-        p_layout = QVBoxLayout(self.grp_param);
-        p_layout.setSpacing(6);
+        p_layout = QVBoxLayout(self.grp_param)
+        p_layout.setSpacing(6)
         p_layout.setContentsMargins(5, 5, 5, 5)
 
-        p_layout.addWidget(QLabel("ANALYSIS MODE:"));
-        self.combo_mode = QComboBox();
-        self.combo_mode.addItems(["🌑 Dark Field (White Pixel)", "☀️ Bright Field (Contrast)"]);
-        self.combo_mode.currentIndexChanged.connect(self.toggle_params);
+        p_layout.addWidget(QLabel("ANALYSIS MODE:"))
+        self.combo_mode = QComboBox()
+        self.combo_mode.addItems(["🌑 Dark Field (White Pixel)", "☀️ Bright Field (Contrast)"])
+        self.combo_mode.currentIndexChanged.connect(self.toggle_params)
         p_layout.addWidget(self.combo_mode)
-        self.hist_widget = InteractiveHistogram();
-        self.hist_widget.setFixedHeight(100);
-        self.hist_widget.threshold_changed_signal.connect(self.on_hist_line_changed);
+
+        self.hist_widget = InteractiveHistogram()
+        self.hist_widget.setFixedHeight(100)
+        self.hist_widget.threshold_changed_signal.connect(self.on_hist_line_changed)
         p_layout.addWidget(self.hist_widget)
 
-        h1 = QHBoxLayout();
-        h1.addWidget(QLabel("CH:"));
-        self.cb_ch = QComboBox();
-        self.cb_ch.addItems(["4", "16", "64"]);
-        self.cb_ch.setCurrentIndex(1);
+        h1 = QHBoxLayout()
+        h1.addWidget(QLabel("CH:"))
+        self.cb_ch = QComboBox()
+        self.cb_ch.addItems(["4", "16", "64"])
+        self.cb_ch.setCurrentIndex(1)
         h1.addWidget(self.cb_ch)
-        h1.addWidget(QLabel("Filter:"));
-        self.cb_fs = QComboBox();
-        self.cb_fs.addItems(["3", "5", "7"]);
-        self.cb_fs.setCurrentIndex(1);
-        h1.addWidget(self.cb_fs);
+        h1.addWidget(QLabel("Filter:"))
+        self.cb_fs = QComboBox()
+        self.cb_fs.addItems(["3", "5", "7"])
+        self.cb_fs.setCurrentIndex(1)
+        h1.addWidget(self.cb_fs)
         p_layout.addLayout(h1)
 
-        self.container_dark = QWidget();
-        lay_dark = QVBoxLayout(self.container_dark);
+        # 暗场参数容器
+        self.container_dark = QWidget()
+        lay_dark = QVBoxLayout(self.container_dark)
         lay_dark.setContentsMargins(0, 0, 0, 0)
-
-        h_d1 = QHBoxLayout();
-        h_d1.addWidget(QLabel("Abs Thresh:"));
-        self.sb_thresh_abs = QSpinBox();
-        self.sb_thresh_abs.setRange(0, 255);
-        self.sb_thresh_abs.setValue(50);
-        self.sb_thresh_abs.valueChanged.connect(self.on_spinbox_changed);
-        h_d1.addWidget(self.sb_thresh_abs);
+        h_d1 = QHBoxLayout()
+        h_d1.addWidget(QLabel("Abs Thresh:"))
+        self.sb_thresh_abs = QSpinBox()
+        self.sb_thresh_abs.setRange(0, 255)
+        self.sb_thresh_abs.setValue(50)
+        self.sb_thresh_abs.valueChanged.connect(self.on_spinbox_changed)
+        h_d1.addWidget(self.sb_thresh_abs)
         lay_dark.addLayout(h_d1)
-
-        h_d2 = QHBoxLayout();
-
-        # 2.1 同通道距离
-        lbl_cd = QLabel("Ch Dist:")
-        lbl_cd.setToolTip("同通道同色像素判定Cluster的距离 (建议: 3)")
-        h_d2.addWidget(lbl_cd);
-        self.sb_ch_dist_dark = QSpinBox();  # 改名以便区分
-        self.sb_ch_dist_dark.setRange(1, 20);
-        self.sb_ch_dist_dark.setValue(3);  # 默认为3 (严格)
-        h_d2.addWidget(self.sb_ch_dist_dark);
-
-        # 2.2 全局距离
-        lbl_gd = QLabel("Global:")
-        lbl_gd.setToolTip("不同通道合并判定Cluster的距离 (建议: 5)")
-        h_d2.addWidget(lbl_gd);
-        self.sb_g_dist_dark = QSpinBox();  # 改名以便区分
-        self.sb_g_dist_dark.setRange(1, 20);
-        self.sb_g_dist_dark.setValue(5);  # 默认为5 (标准)
-        h_d2.addWidget(self.sb_g_dist_dark);
-
-        lay_dark.addLayout(h_d2);
+        h_d2 = QHBoxLayout()
+        h_d2.addWidget(QLabel("Ch Dist:"))
+        self.sb_ch_dist_dark = QSpinBox()
+        self.sb_ch_dist_dark.setRange(1, 20)
+        self.sb_ch_dist_dark.setValue(3)
+        h_d2.addWidget(self.sb_ch_dist_dark)
+        h_d2.addWidget(QLabel("Global:"))
+        self.sb_g_dist_dark = QSpinBox()
+        self.sb_g_dist_dark.setRange(1, 20)
+        self.sb_g_dist_dark.setValue(5)
+        h_d2.addWidget(self.sb_g_dist_dark)
+        lay_dark.addLayout(h_d2)
         p_layout.addWidget(self.container_dark)
 
-        self.container_bright = QWidget();
-        lay_bright = QVBoxLayout(self.container_bright);
+        # 亮场参数容器
+        self.container_bright = QWidget()
+        lay_bright = QVBoxLayout(self.container_bright)
         lay_bright.setContentsMargins(0, 0, 0, 0)
-
-        # 行1: 对比度阈值
-        h_b1 = QHBoxLayout();
-        h_b1.addWidget(QLabel("Contrast %:"));
-        self.sb_thresh_pct = QSpinBox();
-        self.sb_thresh_pct.setRange(1, 100);
-        self.sb_thresh_pct.setValue(30);
-        self.sb_thresh_pct.setToolTip("相对背景的对比度百分比 (1-100)")
-        h_b1.addWidget(self.sb_thresh_pct);
+        h_b1 = QHBoxLayout()
+        h_b1.addWidget(QLabel("Contrast %:"))
+        self.sb_thresh_pct = QSpinBox()
+        self.sb_thresh_pct.setRange(1, 100)
+        self.sb_thresh_pct.setValue(30)
+        h_b1.addWidget(self.sb_thresh_pct)
         lay_bright.addLayout(h_b1)
-
-        # 行2: 聚类距离设置
-        h_b2 = QHBoxLayout();
-
-        # 2.1 同通道距离
-        h_b2.addWidget(QLabel("Ch Dist:"));
-        self.sb_ch_dist_bright = QSpinBox();
-        self.sb_ch_dist_bright.setRange(1, 20);
-        self.sb_ch_dist_bright.setValue(3);
-        h_b2.addWidget(self.sb_ch_dist_bright);
-
-        # 2.2 全局距离
-        h_b2.addWidget(QLabel("Global:"));
-        self.sb_g_dist_bright = QSpinBox();
-        self.sb_g_dist_bright.setRange(1, 20);
-        self.sb_g_dist_bright.setValue(5);
-        h_b2.addWidget(self.sb_g_dist_bright);
-
-        lay_bright.addLayout(h_b2);
-        p_layout.addWidget(self.container_bright);
+        h_b2 = QHBoxLayout()
+        h_b2.addWidget(QLabel("Ch Dist:"))
+        self.sb_ch_dist_bright = QSpinBox()
+        self.sb_ch_dist_bright.setRange(1, 20)
+        self.sb_ch_dist_bright.setValue(3)
+        h_b2.addWidget(self.sb_ch_dist_bright)
+        h_b2.addWidget(QLabel("Global:"))
+        self.sb_g_dist_bright = QSpinBox()
+        self.sb_g_dist_bright.setRange(1, 20)
+        self.sb_g_dist_bright.setValue(5)
+        h_b2.addWidget(self.sb_g_dist_bright)
+        lay_bright.addLayout(h_b2)
+        p_layout.addWidget(self.container_bright)
         self.container_bright.hide()
+
         mid_layout.addWidget(self.grp_param)
 
-        h_spec = QHBoxLayout();
-        h_spec.addWidget(QLabel("Max Pts:"));
-        self.sb_spec_pts = QSpinBox();
-        self.sb_spec_pts.setRange(0, 99999);
-        self.sb_spec_pts.setValue(100);
+        h_spec = QHBoxLayout()
+        h_spec.addWidget(QLabel("Max Pts:"))
+        self.sb_spec_pts = QSpinBox()
+        self.sb_spec_pts.setRange(0, 99999)
+        self.sb_spec_pts.setValue(100)
         h_spec.addWidget(self.sb_spec_pts)
-        h_spec.addWidget(QLabel("Max Cls:"));
-        self.sb_spec_cls = QSpinBox();
-        self.sb_spec_cls.setRange(0, 999);
-        self.sb_spec_cls.setValue(0);
-        h_spec.addWidget(self.sb_spec_cls);
+        h_spec.addWidget(QLabel("Max Cls:"))
+        self.sb_spec_cls = QSpinBox()
+        self.sb_spec_cls.setRange(0, 999)
+        self.sb_spec_cls.setValue(0)
+        h_spec.addWidget(self.sb_spec_cls)
         mid_layout.addLayout(h_spec)
 
-        self.btn_load = QPushButton("🔄 RE-ANALYZE");
-        self.btn_load.clicked.connect(self.re_analyze_current);
-        self.btn_load.setMinimumHeight(40);
+        self.btn_load = QPushButton("🔄 RE-ANALYZE")
+        self.btn_load.clicked.connect(self.re_analyze_current)
+        self.btn_load.setMinimumHeight(40)
         mid_layout.addWidget(self.btn_load)
 
-        # === 结果栏 (重点修改区域) ===
+        # 结果栏
         h_res_det = QHBoxLayout()
-        h_res_det.setSpacing(5)  # 两个框之间的间距
-
-        # 左边：Pass/Fail (加宽)
+        h_res_det.setSpacing(5)
         self.lbl_result = QLabel("READY")
         self.lbl_result.setObjectName("ResultLabel")
         self.lbl_result.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_result.setFixedWidth(200)  # [修改] 宽度改为 200
-        self.lbl_result.setStyleSheet("""
-            background-color: #1a1a1a; 
-            color: #666; 
-            border: 2px solid #444; 
-            border-radius: 6px; 
-            font-weight: bold; font-size: 11pt;
-        """)
+        self.lbl_result.setFixedWidth(200)
+        self.lbl_result.setStyleSheet(
+            "background-color: #1a1a1a; color: #666; border: 2px solid #444; border-radius: 6px; font-weight: bold; font-size: 11pt;")
         h_res_det.addWidget(self.lbl_result)
-
-        # 右边：详情 (样式升级为盒子)
         self.lbl_detail = QLabel("Wait Selection")
-        self.lbl_detail.setAlignment(Qt.AlignmentFlag.AlignCenter)  # 居中对齐看起来更整齐
-        self.lbl_detail.setStyleSheet("""
-            background-color: #1a1a1a; 
-            color: #ccc; 
-            border: 2px solid #444; 
-            border-radius: 6px; 
-            font-size: 10pt;
-            padding: 2px;
-        """)
+        self.lbl_detail.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_detail.setStyleSheet(
+            "background-color: #1a1a1a; color: #ccc; border: 2px solid #444; border-radius: 6px; font-size: 10pt; padding: 2px;")
         h_res_det.addWidget(self.lbl_detail, stretch=1)
+        mid_layout.addLayout(h_res_det)
 
-        mid_layout.addLayout(h_res_det);
         v_splitter.addWidget(mid_widget)
 
-        # ==========================================================
-        # 🟢 [修复版] 2.3 结果表格与导出按钮 (防消失/防黑屏)
-        # ==========================================================
+        # --- 2.3 结果表格 ---
         bottom_widget = QWidget()
         bottom_layout = QVBoxLayout(bottom_widget)
         bottom_layout.setContentsMargins(10, 0, 10, 10)
         bottom_layout.setSpacing(5)
 
-        # 1. 顶部工具栏 (导出按钮)
         tool_widget = QWidget()
-        # 给工具栏一个固定高度，防止它变得无限大或无限小
         tool_widget.setFixedHeight(40)
         h_tool = QHBoxLayout(tool_widget)
         h_tool.setContentsMargins(0, 0, 0, 0)
-
         h_tool.addWidget(QLabel("📋 Defect List"))
         h_tool.addStretch()
-
         self.btn_export_single = QPushButton("💾 Export")
-        self.btn_export_single.setFixedSize(100, 30)  # 给按钮固定大小
-        self.btn_export_single.setStyleSheet("""
-                    QPushButton { background-color: #0091ea; color: white; font-weight: bold; border-radius: 4px; }
-                    QPushButton:hover { background-color: #40c4ff; }
-                """)
+        self.btn_export_single.setFixedSize(100, 30)
+        self.btn_export_single.setStyleSheet(
+            "QPushButton { background-color: #0091ea; color: white; font-weight: bold; border-radius: 4px; } QPushButton:hover { background-color: #40c4ff; }")
 
-        # ⚠️ 务必确认 self.export_current_data 存在，否则会闪退/黑屏
-        # 这里的 try-except 是为了防止因函数不存在而导致的界面全黑
         try:
             self.btn_export_single.clicked.connect(self.export_current_data)
         except AttributeError:
-            print("⚠️ 警告: export_current_data 函数未找到，按钮将不起作用")
+            print("⚠️ export_current_data missing")
             self.btn_export_single.setEnabled(False)
 
         h_tool.addWidget(self.btn_export_single)
         bottom_layout.addWidget(tool_widget)
 
-        # 2. 表格本体 (🚀 升级为 QTableView + Model)
         self.table = QTableView()
         self.table.setAlternatingRowColors(False)
         self.table.setMinimumHeight(200)
-
-        # 设置样式 (保持原有的暗黑风格)
         self.table.setStyleSheet("""
-                    QTableView {
-                        background-color: #0f0f0f;
-                        color: #e0e0e0;
-                        gridline-color: #333;
-                        border: 1px solid #444;
-                        selection-background-color: #00e676;
-                        selection-color: #000000;
-                    }
-                    QHeaderView::section {
-                        background-color: #222;
-                        color: #aaa;
-                        padding: 4px;
-                        border: 1px solid #333;
-                        font-weight: bold;
-                    }
-                    QTableCornerButton::section {
-                        background-color: #222;
-                        border: 1px solid #333;
-                    }
-                """)
-        # --- 初始化 Model 与 Proxy (排序代理) ---
-        self.model = DefectTableModel([])  # 初始为空
+            QTableView { background-color: #0f0f0f; color: #e0e0e0; gridline-color: #333; border: 1px solid #444; selection-background-color: #00e676; selection-color: #000000; }
+            QHeaderView::section { background-color: #222; color: #aaa; padding: 4px; border: 1px solid #333; font-weight: bold; }
+            QTableCornerButton::section { background-color: #222; border: 1px solid #333; }
+        """)
+        self.model = DefectTableModel([])
         self.proxy_model = QSortFilterProxyModel()
         self.proxy_model.setSourceModel(self.model)
-
-        # 绑定 Model 到 View
         self.table.setModel(self.proxy_model)
-        self.table.setSortingEnabled(True)  # 启用表头排序
-
-        # 优化列宽显示
+        self.table.setSortingEnabled(True)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         header.setStretchLastSection(True)
-
-        # 🟢 [修改] 信号连接：clicked 信号传回的是 QModelIndex
         self.table.clicked.connect(self.on_table_click)
         self.table.selectionModel().currentChanged.connect(self.on_table_selection_change)
         bottom_layout.addWidget(self.table)
 
-        # 3. 将底部容器加入分割器
-        # 🟢 [关键] 设置 Collapsible 为 False，禁止用户把它拖没了
         v_splitter.addWidget(bottom_widget)
         v_splitter.setCollapsible(2, False)
-
-        # 4. 设置分割器比例 (上:中:下) -> 确保给底部留了位置
         v_splitter.setSizes([150, 400, 300])
-
-        # 5. 最后确认将左侧面板加入主分割器
         h_splitter.addWidget(self.left_panel)
 
-
-        # 3. 右侧面板 (保持不变)
-        right_widget = QWidget();
-        right_layout = QVBoxLayout(right_widget);
+        # ==========================================
+        # 3. 右侧面板 (Right Panel)
+        # ==========================================
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
         right_layout.setContentsMargins(10, 10, 10, 10)
-        h_info = QHBoxLayout();
-        self.combo_view = QComboBox();
-        self.combo_view.addItems(["🖼️ Raw Analysis View", "🔲 Channel Grid View"]);
-        self.combo_view.setMinimumWidth(180);
-        self.combo_view.currentIndexChanged.connect(self.toggle_view_image);
-        h_info.addWidget(self.combo_view);
-        # [新增] 3D 视图开关按钮
+
+        # 3.1 顶部信息栏
+        h_info = QHBoxLayout()
+        self.combo_view = QComboBox()
+        self.combo_view.addItems(["🖼️ Raw Analysis View", "🔲 Channel Grid View"])
+        self.combo_view.setMinimumWidth(180)
+        self.combo_view.currentIndexChanged.connect(lambda idx: self.toggle_view_image(idx))
+        h_info.addWidget(self.combo_view)
+
         self.btn_3d = QPushButton("⛰️ 3D View")
-        self.btn_3d.setCheckable(True)  # 这是个开关
-        self.btn_3d.setStyleSheet("""
-                    QPushButton { background: #333; color: #ccc; border: 1px solid #555; padding: 4px 10px; border-radius: 4px; }
-                    QPushButton:checked { background: #6200ea; color: white; border: 1px solid #7c4dff; }
-                    QPushButton:hover { background: #444; }
-                """)
+        self.btn_3d.setCheckable(True)
+        self.btn_3d.setStyleSheet(
+            "QPushButton { background: #333; color: #ccc; border: 1px solid #555; padding: 4px 10px; border-radius: 4px; } QPushButton:checked { background: #6200ea; color: white; border: 1px solid #7c4dff; } QPushButton:hover { background: #444; }")
         self.btn_3d.clicked.connect(self.toggle_3d_window)
         h_info.addWidget(self.btn_3d)
 
-        h_info.addStretch();
-        h_info.addWidget(QLabel("Shortcuts: [WASD] Pan | [Space] View | [Ctrl+→] Next"));
-        h_info.addStretch();
-        self.lbl_cursor_info = QLabel("X: --  Y: --  Val: --");
+        # [功能] 显示标记开关
+        self.chk_show_overlay = PyQt6.QtWidgets.QCheckBox("Show Markers")
+        self.chk_show_overlay.setChecked(True)
+        self.chk_show_overlay.setStyleSheet(
+            "QCheckBox { color: #ccc; font-weight: bold; margin-left: 10px; } QCheckBox::indicator { width: 14px; height: 14px; border: 1px solid #555; background: #222; border-radius: 3px; } QCheckBox::indicator:checked { background: #00e676; border: 1px solid #00e676; }")
+        self.chk_show_overlay.toggled.connect(
+            lambda: self.toggle_view_image(self.combo_view.currentIndex(), maintain_view=True))
+        h_info.addWidget(self.chk_show_overlay)
+
+        h_info.addStretch()
+        h_info.addWidget(QLabel("Shortcuts: [WASD] Pan | [Space] View | [Ctrl+→] Next"))
+        h_info.addStretch()
+
+        self.lbl_cursor_info = QLabel("X: --  Y: --  Val: --")
         self.lbl_cursor_info.setStyleSheet(
-            "color: #00e676; font-weight: bold; font-family: Consolas; background: #222; padding: 2px 8px; border-radius: 4px;");
-        h_info.addWidget(self.lbl_cursor_info);
+            "color: #00e676; font-weight: bold; font-family: Consolas; background: #222; padding: 2px 8px; border-radius: 4px;")
+        h_info.addWidget(self.lbl_cursor_info)
+
         right_layout.addLayout(h_info)
-        self.zoom_img = ZoomableGraphicsView();
-        self.zoom_img.mouse_moved_signal.connect(self.update_cursor_display);
+
+        # 3.2 可缩放图片视图 (🔴 关键修复点：必须先创建对象，再添加到 layout)
+        self.zoom_img = ZoomableGraphicsView()
+        self.zoom_img.mouse_moved_signal.connect(self.update_cursor_display)
+        self.zoom_img.view_changed_signal.connect(self.update_fov_box)  # 连接雷达信号
         right_layout.addWidget(self.zoom_img, stretch=2)
-        self.graph = pg.PlotWidget(background='#0f0f0f');
-        self.graph.showGrid(x=True, y=True, alpha=0.3);
-        plot_item = self.graph.getPlotItem();
-        plot_item.invertY(True);
-        plot_item.showAxis('bottom', False);
-        plot_item.showAxis('top', True);
-        plot_item.showAxis('left', True);
+
+        # 3.3 散点图与雷达
+        self.graph = pg.PlotWidget(background='#0f0f0f')
+        self.graph.showGrid(x=True, y=True, alpha=0.3)
+        plot_item = self.graph.getPlotItem()
+        plot_item.invertY(True)
+        plot_item.showAxis('bottom', False)
+        plot_item.showAxis('top', True)
+        plot_item.showAxis('left', True)
+
+        # 初始化雷达框
+        self.fov_box = pg.PlotCurveItem(pen=pg.mkPen('y', width=2, style=Qt.PenStyle.DashLine))
+        self.graph.addItem(self.fov_box)
+
+        # 初始化图例
+        self.legend = self.graph.addLegend(offset=(10, 10))
+        self.legend.setScale(0.8)
+
         right_layout.addWidget(self.graph, stretch=2)
-        h_splitter.addWidget(right_widget);
+
+        h_splitter.addWidget(right_widget)
         h_splitter.setSizes([450, 900])
-        self.current_single_dir = None;
+
+        self.current_single_dir = None
         self.current_file_path = None
-
-        # ==========================================================
-
     def on_table_selection_change(self, current, previous):
         if not current.isValid(): return
         # 直接复用点击逻辑
@@ -797,10 +749,20 @@ class CyberApp(QMainWindow):
 
         # 🟢 [关键!] 缓存原始数据 (这就是你要的“完全不缩略”的数据)
         self.cache_raw_img = img_raw
-        # 为了 3D 图也没红框干扰，3D 也可以用这个
-        self.cache_clean_img = img_raw
-        # [新增] 尝试重新读取一份纯净的原图用于 3D 显示
-        # 因为 vis_raw 已经被 OpenCV 画上了红框，3D 地形图会把红框也当成像素高度显示出来
+        # 👇👇👇 [新增] 生成并缓存纯净版显示图 (8-bit, 无标记) 👇👇👇
+        if img_raw is not None:
+            # 1. 归一化到 0-255 (即使原图是16bit)
+            vis_clean = cv2.normalize(img_raw, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+
+            # 2. 格式统一：如果 vis_raw 是彩色(BGR)，vis_clean 也要转彩色，防止切换时黑屏或闪烁
+            if vis_raw is not None and len(vis_raw.shape) == 3 and len(vis_clean.shape) == 2:
+                vis_clean = cv2.cvtColor(vis_clean, cv2.COLOR_GRAY2BGR)
+
+            self.cache_vis_clean = vis_clean  # 存起来
+            self.cache_clean_img = img_raw  # 给3D视图用的源数据
+        else:
+            self.cache_vis_clean = None
+        # 👆👆👆 [新增结束] 👆👆👆
 
         # 2. 安全检查
         if vis_raw is None: return
@@ -846,38 +808,89 @@ class CyberApp(QMainWindow):
 
         # 2. 收集 Graph 绘图用的数据 (这一步还是需要的，但它是纯数据处理，很快)
         self.cursor_lines = []
-        spots_cluster, spots_bright, spots_dark = [], [], []
+        spots_bright = []
+        spots_dark = []
+        spots_cls_ch = []  # 🟠 Channel Cluster (同通道)
+        spots_cls_sp = []  # 🔴 Spatial Cluster (非同通道/空间)
 
         for r, d in enumerate(data):
-            # 收集 Graph 绘图用的数据
             pt_data = {'pos': (d['gx'], d['gy']), 'data': r}
             pol = d.get('polarity', 'Bright')
+            ftype = d.get('final_type', 'Single')
 
-            if "Cluster" in d['final_type']:
-                spots_cluster.append(pt_data)
+            # --- 分类逻辑 ---
+            if "Channel" in ftype and "Cluster" in ftype:
+                # Channel_Cluster -> 橙色
+                spots_cls_ch.append(pt_data)
+            elif "Spatial" in ftype or "Cluster" in ftype:
+                # Spatial_Cluster (或者其他 Cluster) -> 红色
+                spots_cls_sp.append(pt_data)
             elif pol == 'Dark':
                 spots_dark.append(pt_data)
             else:
                 spots_bright.append(pt_data)
 
-        # 3. 绘制散点图 (逻辑不变)
-        self.graph.clear()  # 记得先清空旧图
+            # 3. 绘制散点图
+        self.graph.clear()
+        # [修复] 仅当雷达框确实不在图中时才添加，消除 Warning
+        if hasattr(self, 'fov_box'):
+            # graph.getPlotItem().items 是当前所有图元的列表
+            if self.fov_box not in self.graph.getPlotItem().items:
+                self.graph.addItem(self.fov_box)
 
+        # [修复] 重建图例 (Legend)
+        # 1. 移除旧图例
+        if hasattr(self, 'legend') and self.legend:
+            if self.legend.scene() is not None:
+                self.legend.scene().removeItem(self.legend)
+        # 2. 新建图例
+        self.legend = self.graph.addLegend(offset=(10, 10))
+        self.legend.setScale(0.8)
+        # ... (绘制时传入 name，这样图例会自动显示) ...
+        # if spots_bright:
+        #     setup_scatter(spots_bright, pg.mkBrush(0, 255, 0, 200), 'o', size=8, name="Bright")
+        #
+        # if spots_dark:
+        #     setup_scatter(spots_dark, pg.mkBrush(30, 144, 255, 200), 'o', size=8, name="Dark")
+        #
+        # if spots_cls_ch:
+        #     setup_scatter(spots_cls_ch, pg.mkBrush(255, 255, 0, 180), 's', size=14, pen=pg.mkPen('w', width=1),
+        #                   name="Ch-Cluster")
+        #
+        # if spots_cls_sp:
+        #     setup_scatter(spots_cls_sp, pg.mkBrush(255, 50, 50, 180), 's', size=14, pen=pg.mkPen('w', width=1),
+        #                   name="Sp-Cluster")
         if spots_bright:
-            s1 = pg.ScatterPlotItem(size=8, pen=None, brush=pg.mkBrush(0, 255, 0, 200), symbol='o')
+            # 👇 [修改] 增加 name 参数，让图例显示
+            s1 = pg.ScatterPlotItem(size=8, pen=None, brush=pg.mkBrush(0, 255, 0, 200), symbol='o', name='Bright')
             s1.addPoints(spots_bright)
+            # ... (绑定点击事件) ...
+            if hasattr(self, 'on_scatter_clicked'): s1.sigClicked.connect(self.on_scatter_clicked)
             self.graph.addItem(s1)
 
         if spots_dark:
-            s2 = pg.ScatterPlotItem(size=8, pen=None, brush=pg.mkBrush(30, 144, 255, 200), symbol='o')
+            s2 = pg.ScatterPlotItem(size=8, pen=None, brush=pg.mkBrush(30, 144, 255, 200), symbol='o', name='Dark')
             s2.addPoints(spots_dark)
+            if hasattr(self, 'on_scatter_clicked'): s2.sigClicked.connect(self.on_scatter_clicked)
             self.graph.addItem(s2)
 
-        if spots_cluster:
-            s3 = pg.ScatterPlotItem(size=14, pen=pg.mkPen('w', width=1), brush=pg.mkBrush(255, 50, 50, 180),
-                                    symbol='s')
-            s3.addPoints(spots_cluster)
+        if spots_cls_ch:
+            # 这里的 spots_cluster 如果你要区分 黄/红 颜色，请参考之前的代码拆分
+            # 这里演示最基础的补回
+            s3 = pg.ScatterPlotItem(size=14, pen=pg.mkPen('w', width=1), brush=pg.mkBrush(255, 255, 0, 180), symbol='s',
+                                    name='Ch-Cluster')
+            s3.addPoints(spots_cls_ch)
+            if hasattr(self, 'on_scatter_clicked'): s3.sigClicked.connect(self.on_scatter_clicked)
             self.graph.addItem(s3)
+
+        if spots_cls_sp:
+            # 这里的 spots_cluster 如果你要区分 黄/红 颜色，请参考之前的代码拆分
+            # 这里演示最基础的补回
+            s4 = pg.ScatterPlotItem(size=14, pen=pg.mkPen('w', width=1), brush=pg.mkBrush(255, 50, 50, 180), symbol='s',
+                                    name='Sp-Cluster')
+            s4.addPoints(spots_cls_sp)
+            if hasattr(self, 'on_scatter_clicked'): s4.sigClicked.connect(self.on_scatter_clicked)
+            self.graph.addItem(s4)
 
         # 4. 设置图表范围
         if vis_raw is not None:
@@ -889,15 +902,24 @@ class CyberApp(QMainWindow):
         if hasattr(self, 'hist_widget'):
             self.hist_widget.update_data(self.cache_raw_img)
 
-    def toggle_view_image(self, index):
+    def toggle_view_image(self, index, maintain_view=False):
         # 检查缓存是否存在
         if not hasattr(self, 'cache_vis_raw') or self.cache_vis_raw is None:
             return
 
         if index == 0:
-            # 显示原始分析图
-            self.zoom_img.set_image(self.cache_vis_raw)
-            # 启用表格点击联动
+            # === Raw Analysis View 模式 ===
+            show_markers = True
+            if hasattr(self, 'chk_show_overlay'):
+                show_markers = self.chk_show_overlay.isChecked()
+
+            if show_markers:
+                # 👇 [修改] 将参数透传给 set_image
+                self.zoom_img.set_image(self.cache_vis_raw, maintain_view=maintain_view)
+            else:
+                # 👇 [修改] 将参数透传给 set_image
+                self.zoom_img.set_image(self.cache_vis_clean, maintain_view=maintain_view)
+
             self.table.setEnabled(True)
         else:
             if (not hasattr(self, 'cache_vis_grid') or self.cache_vis_grid is None) and hasattr(self, 'cache_raw_img'):
@@ -913,8 +935,8 @@ class CyberApp(QMainWindow):
 
                 # 显示通道网格图
             if self.cache_vis_grid is not None:
-                self.zoom_img.set_image(self.cache_vis_grid)
-
+                # Grid 模式保持默认 (False)，每次重新适应窗口
+                self.zoom_img.set_image(self.cache_vis_grid, maintain_view=False)
             # Grid 模式下禁用表格联动（防止坐标错位）
             # self.table.setEnabled(False)
 
@@ -979,6 +1001,53 @@ class CyberApp(QMainWindow):
                 target_y = grid_row_idx * sub_h + local_y
 
         self.zoom_img.highlight_defect(target_x, target_y, size=30)
+
+        # 🔍 找到 ui/main_window.py 中的 on_scatter_clicked 方法
+
+    def on_scatter_clicked(self, plot_item, points):
+        """
+        点击坐标轴上的坏点 -> 移动视图中心 + 保持放大倍数 + 更新光标
+        """
+        # 👇👇👇 [修改] 使用 len() 判断，兼容 List 和 Numpy Array 👇👇👇
+        if len(points) == 0:
+            return
+
+        # 1. 获取被点击的点 (取第一个，防止重叠时报错)
+        p = points[0]
+
+        # 2. 获取坐标
+        # 注意：PyQtGraph 的点坐标通常是浮点数，需要转 int
+        x = int(p.pos().x())
+        y = int(p.pos().y())
+
+        # 3. 移动主视图 (核心需求)
+        # 这一步会平移视图中心到 (x,y)，但不会改变缩放倍数
+        self.zoom_img.highlight_defect(x, y)
+
+        # 4. 联动表格和光标信息
+        row_idx = p.data()
+        val = "N/A"
+
+        if row_idx is not None and hasattr(self, 'current_data_cache'):
+            # 确保索引不越界
+            if row_idx < len(self.current_data_cache):
+                item_data = self.current_data_cache[row_idx]
+                val = item_data['val']
+
+                # 选中表格对应行
+                if hasattr(self, 'proxy_model'):
+                    source_idx = self.model.index(row_idx, 0)
+                    proxy_idx = self.proxy_model.mapFromSource(source_idx)
+                    if proxy_idx.isValid():
+                        self.table.selectRow(proxy_idx.row())
+                        self.table.scrollTo(proxy_idx)
+
+        # 更新右上角的光标坐标显示
+        self.lbl_cursor_info.setText(f"📍 X: {x:<4} Y: {y:<4} 💡 Val: {val}")
+
+        # 如果开启了 3D 视图，也刷新 3D
+        if self.win_3d.isVisible():
+            self.update_cursor_display(x, y, val)
 
     def run_batch(self):
         # 简单的校验
@@ -1264,4 +1333,17 @@ class CyberApp(QMainWindow):
 
             # 触发分析
             self.trigger_analysis(str(path))
+
+    # 🟢 [新增] 槽函数：更新雷达框
+    # 🟢 [补回] 槽函数：更新雷达框
+    def update_fov_box(self, rect):
+        """接收主视图的可见区域 (Rect)，在坐标系上画出对应的框"""
+        x, y, w, h = rect.x(), rect.y(), rect.width(), rect.height()
+
+        # 绘制矩形 (5点闭合)
+        x_pts = [x, x + w, x + w, x, x]
+        y_pts = [y, y, y + h, y + h, y]
+
+        if hasattr(self, 'fov_box'):
+            self.fov_box.setData(x_pts, y_pts)
     pass

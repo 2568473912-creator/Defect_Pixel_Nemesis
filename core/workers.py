@@ -145,11 +145,14 @@ class BatchWorker(QThread):
         try:
             with open(csv_path, 'w', newline='', encoding='utf-8-sig') as cf:
                 writer = csv.writer(cf)
-                writer.writerow(['CH', 'Type', 'Polarity', 'X', 'Y', 'Val', 'Size', 'CropPath'])
+                # [修改] 增加 Cluster ID 列
+                writer.writerow(['CH', 'Cluster ID', 'Type', 'Polarity', 'X', 'Y', 'Val', 'Size', 'CropPath'])
                 for d in data:
                     pol = "White" if d.get('polarity') == 'Bright' else "Black"
                     writer.writerow([
-                        d['ch'], d.get('final_type'), pol,
+                        d['ch'],
+                        d.get('cluster_id', 0),  # 写入 ID
+                        d.get('final_type'), pol,
                         d['gx'], d['gy'], d['val'],
                         d.get('size', 1), d.get('CropPath', '')
                     ])
@@ -195,28 +198,37 @@ class BatchWorker(QThread):
             # Sheet 2: Cluster Details
             if self.export_details and all_cluster_details:
                 ws2 = workbook.add_worksheet("Cluster_Details")
-                # 🟢 [注意] 这里的 Header 必须和 process_single_image_task 返回的字典键一致
-                headers2 = ["Filename", "CH", "Type", "Polarity", "X", "Y", "Val", "Size", "Snapshot"]
+                # [修改] 增加 Cluster ID 列
+                headers2 = ["Filename", "Cluster ID", "CH", "Type", "Polarity", "X", "Y", "Val", "Size", "Snapshot"]
                 ws2.write_row(0, 0, headers2, header_fmt)
-
+                # 🟢 [新增] Excel 行数上限
+                MAX_ROWS = 1048500
                 all_cluster_details.sort(key=lambda x: x['Filename'])
 
                 for r, d in enumerate(all_cluster_details, start=1):
+                    # 🟢 [新增] 超限检查
+                    if r > MAX_ROWS:
+                        ws2.write(r, 0, "⚠️ TRUNCATED", norm_fmt)
+                        self.log_signal.emit(f"⚠️ Batch Report Truncated: Exceeded {MAX_ROWS} rows.")
+                        break
                     ws2.set_row(r, 65)
                     ws2.write(r, 0, d["Filename"], norm_fmt)
-                    ws2.write(r, 1, d["CH"], norm_fmt)  # 对应字典里的 "CH"
-                    ws2.write(r, 2, d["Type"], norm_fmt)  # 对应 "Type"
-                    ws2.write(r, 3, d["Polarity"], norm_fmt)  # 对应 "Polarity"
-                    ws2.write(r, 4, d["X"], norm_fmt)  # 对应 "X"
-                    ws2.write(r, 5, d["Y"], norm_fmt)  # 对应 "Y"
-                    ws2.write(r, 6, d["Val"], norm_fmt)  # 对应 "Val"
-                    ws2.write(r, 7, d["Size"], norm_fmt)  # 对应 "Size"
+                    ws2.write(r, 1, d.get("Cluster ID", 0), norm_fmt)  # 写入 ID
+                    ws2.write(r, 2, d["CH"], norm_fmt)
+                    ws2.write(r, 3, d["Type"], norm_fmt)
+                    ws2.write(r, 4, d["Polarity"], norm_fmt)
+                    ws2.write(r, 5, d["X"], norm_fmt)
+                    ws2.write(r, 6, d["Y"], norm_fmt)
+                    ws2.write(r, 7, d["Val"], norm_fmt)
+                    ws2.write(r, 8, d["Size"], norm_fmt)
 
-                    if os.path.exists(d["CropPath"]):
-                        ws2.insert_image(r, 8, d["CropPath"], {'x_offset': 5, 'y_offset': 2})
+                    # 插入图片 (检查路径是否存在)
+                    # 因为我们刚才在 tasks.py 做了控制，同一个 Cluster 只有第一行会有 CropPath
+                    if d.get("CropPath") and os.path.exists(d["CropPath"]):
+                        ws2.insert_image(r, 9, d["CropPath"], {'x_offset': 5, 'y_offset': 2})
 
                 ws2.set_column(0, 0, 25)
-                ws2.set_column(8, 8, 12)
+                ws2.set_column(9, 9, 12)  # 调整最后一列宽
 
             workbook.close()
             self.log_signal.emit(f"✅ Excel Saved: {excel_path}")

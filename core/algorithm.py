@@ -189,39 +189,43 @@ class CoreAlgorithm:
                 if count > 1 and pt['raw_type'] == "Single":
                     pt['final_type'] = "Spatial_Cluster"
 
-        # ==========================================================
-        # 4.5: 计算 Cluster Size (保持逻辑，微调性能)
-        # ==========================================================
-        for pt in detected_points: pt['size'] = 1
+            # ==========================================================
+            # 4.5: 计算 Cluster Size 和 Cluster ID (新增)
+            # ==========================================================
+            # 1. 先初始化所有点的 ID 为 0
+            for pt in detected_points:
+                pt['size'] = 1
+                pt['cluster_id'] = 0
 
-        cluster_pts = [p for p in detected_points if "Cluster" in p['final_type']]
-        if cluster_pts:
-            mask_cls = np.zeros((h_img, w_img), dtype=np.uint8)
-            # 🚀 向量化赋值
-            c_gys = [p['gy'] for p in cluster_pts]
-            c_gxs = [p['gx'] for p in cluster_pts]
-            mask_cls[c_gys, c_gxs] = 255
+            cluster_pts = [p for p in detected_points if "Cluster" in p['final_type']]
+            if cluster_pts:
+                mask_cls = np.zeros((h_img, w_img), dtype=np.uint8)
+                c_gys = [p['gy'] for p in cluster_pts]
+                c_gxs = [p['gx'] for p in cluster_pts]
+                mask_cls[c_gys, c_gxs] = 255
 
-            step = int(np.sqrt(channels))
-            visual_kernel_size = max(g_dist, ch_dist * step)
-            if visual_kernel_size % 2 == 0: visual_kernel_size += 1
+                step = int(np.sqrt(channels))
+                visual_kernel_size = max(g_dist, ch_dist * step)
+                if visual_kernel_size % 2 == 0: visual_kernel_size += 1
 
-            kernel = np.ones((visual_kernel_size, visual_kernel_size), np.uint8)
-            dilated_mask = cv2.dilate(mask_cls, kernel, iterations=1)
-            num_labels, labels = cv2.connectedComponents(dilated_mask, connectivity=8)
+                kernel = np.ones((visual_kernel_size, visual_kernel_size), np.uint8)
+                dilated_mask = cv2.dilate(mask_cls, kernel, iterations=1)
 
-            label_counts = {}
-            # 这里必须遍历点来统计，因为我们要知道"哪些坏点"属于哪个 Label
-            # 这一步量级通常较小，Python 循环可以接受
-            for pt in cluster_pts:
-                lbl = labels[pt['gy'], pt['gx']]
-                if lbl > 0:
-                    label_counts[lbl] = label_counts.get(lbl, 0) + 1
+                # 2. 获取连通域标签 (Labels)
+                num_labels, labels = cv2.connectedComponents(dilated_mask, connectivity=8)
 
-            for pt in cluster_pts:
-                lbl = labels[pt['gy'], pt['gx']]
-                if lbl in label_counts:
-                    pt['size'] = label_counts[lbl]
+                label_counts = {}
+                for pt in cluster_pts:
+                    lbl = labels[pt['gy'], pt['gx']]
+                    if lbl > 0:
+                        label_counts[lbl] = label_counts.get(lbl, 0) + 1
+
+                # 3. 将 Label 作为 Cluster ID 写入点信息
+                for pt in cluster_pts:
+                    lbl = labels[pt['gy'], pt['gx']]
+                    if lbl > 0:
+                        pt['size'] = label_counts[lbl]
+                        pt['cluster_id'] = lbl  # <--- [新增] 记录 ID
 
         # ==========================================================
         # 5. 绘图逻辑 (优化版：向量化绘图)
