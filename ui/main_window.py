@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QSettings, QSortFilterProxyModel, pyqtSignal
 from PyQt6.QtGui import QIcon
+from PyQt6.QtGui import QBrush, QColor, QRadialGradient, QPen
 
 # 🟢 2. 修复 'BatchWorker' 未解析引用
 # 必须从核心层导入这些 Worker
@@ -391,26 +392,135 @@ class CyberApp(QMainWindow):
             # 亮场用的是对比度百分比，绝对阈值线意义不大，隐藏避免误导
             self.hist_widget.thresh_line.hide()
             self.hist_widget.setTitle("Gray Distribution (Reference Only)")
-    def apply_theme(self):
-        self.setStyleSheet("""
-            QMainWindow, QWidget { background-color: #121212; color: #e0e0e0; font-family: 'Segoe UI'; }
-            QTabWidget::pane { border: 1px solid #333; }
-            QTabBar::tab { background: #1e1e1e; color: #888; padding: 10px 20px; }
-            QTabBar::tab:selected { background: #00e676; color: #000; font-weight: bold; }
-            QGroupBox { border: 1px solid #333; margin-top: 10px; font-weight: bold; color: #00e676; }
-            QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }
-            QPushButton { background-color: #2d2d2d; border: 1px solid #444; padding: 8px; border-radius: 4px; }
-            QPushButton:hover { background-color: #00e676; color: #000; }
-            QLineEdit, QSpinBox, QComboBox { background-color: #1a1a1a; border: 1px solid #333; padding: 5px; color: #fff; }
-            QTableWidget { gridline-color: #333; background-color: #1a1a1a; selection-background-color: #00e676; selection-color: #000;}
-            QHeaderView::section { background-color: #252525; padding: 5px; border: none; font-weight: bold; color: #00e676; }
-            QLabel#DetailLabel { font-size: 16px; font-weight: bold; color: #ffd740; border: 1px solid #ffd740; padding: 10px; border-radius: 5px;}
-            /* 新增 Pass/Fail 标签样式 */
-            QLabel#ResultLabel { font-size: 24px; font-weight: bold; border-radius: 8px; padding: 5px; }
-            QLabel#ResultPass { background-color: rgba(0, 230, 118, 0.2); color: #00e676; border: 2px solid #00e676; }
-            QLabel#ResultFail { background-color: rgba(255, 23, 68, 0.2); color: #ff1744; border: 2px solid #ff1744; }
-        """)
 
+    def apply_theme(self):
+        # 定义核心配色 (Cyberpunk Palette)
+        # 背景: #121212 (深黑)
+        # 面板: #1e1e1e (深灰)
+        # 亮青: #00e676 (主强调色)
+        # 警示红: #ff1744
+        # 科技蓝: #2979ff
+
+        self.setStyleSheet("""
+            /* === 全局基础设置 === */
+            QMainWindow, QWidget { 
+                background-color: #121212; 
+                color: #e0e0e0; 
+                font-family: 'Segoe UI', 'Microsoft YaHei'; 
+                font-size: 10pt;
+            }
+
+            /* === 按钮 (立体渐变 + 底部高光) === */
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #2d2d2d, stop:1 #1a1a1a);
+                border: 1px solid #444;
+                border-bottom: 2px solid #333; /* 增加厚度感 */
+                color: #ccc;
+                padding: 6px 12px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #3a3a3a, stop:1 #252525);
+                border: 1px solid #00e676; /* 悬停发光 */
+                color: #00e676;
+                border-bottom: 2px solid #00b359;
+            }
+            QPushButton:pressed {
+                background-color: #00e676;
+                color: #000;
+                border: 1px solid #00e676;
+                border-bottom: 0px;
+                margin-top: 2px; /* 按下位移效果 */
+            }
+            /* 特殊按钮：红色系 (如 Batch Process) */
+            QPushButton[class="danger"] {
+                border-color: #d32f2f;
+            }
+            QPushButton[class="danger"]:hover {
+                border-color: #ff1744;
+                color: #ff1744;
+            }
+
+            /* === 输入控件 (深陷感) === */
+            QLineEdit, QSpinBox, QComboBox { 
+                background-color: #0f0f0f; 
+                border: 1px solid #333; 
+                border-top: 2px solid #000; /* 顶部阴影 */
+                padding: 5px; 
+                color: #00e676; /* 输入文字亮青色 */
+                font-family: 'Consolas', 'Monospace'; /* 数据用等宽字体 */
+                border-radius: 3px;
+            }
+            QComboBox::drop-down { border: none; }
+            QComboBox::down-arrow { image: none; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 5px solid #666; margin-right: 5px;}
+
+            /* === 分组框 (科技边框) === */
+            QGroupBox { 
+                border: 1px solid #333; 
+                margin-top: 20px; 
+                font-weight: bold; 
+                color: #888; 
+                border-radius: 4px;
+            }
+            QGroupBox::title { 
+                subcontrol-origin: margin; 
+                subcontrol-position: top left;
+                left: 10px; 
+                padding: 0 5px; 
+                background-color: #121212; /* 遮挡边框 */
+                color: #00e676;
+            }
+
+            /* === 列表与表格 (数据密集型) === */
+            QListWidget, QTableView { 
+                background-color: #0a0a0a; 
+                gridline-color: #222; 
+                border: 1px solid #333;
+                outline: none;
+            }
+            QListWidget::item, QTableView::item { 
+                padding: 5px; 
+            }
+            QListWidget::item:selected, QTableView::item:selected { 
+                background-color: rgba(0, 230, 118, 0.2); /* 半透明绿色选中 */
+                border: 1px solid #00e676;
+                color: #fff; 
+            }
+            QHeaderView::section { 
+                background-color: #1a1a1a; 
+                color: #888; 
+                padding: 6px; 
+                border: none; 
+                border-bottom: 2px solid #333;
+                font-weight: bold; 
+                text-transform: uppercase;
+            }
+            QTableCornerButton::section { background-color: #1a1a1a; border: none;}
+
+            /* === 滚动条 (极简暗色) === */
+            QScrollBar:vertical {
+                border: none; background: #111; width: 10px; margin: 0px;
+            }
+            QScrollBar::handle:vertical {
+                background: #333; min-height: 20px; border-radius: 5px;
+            }
+            QScrollBar::handle:vertical:hover { background: #555; }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }
+
+            /* === 标签样式 (Pass/Fail) === */
+            QLabel#ResultLabel { 
+                font-family: 'Consolas', 'Segoe UI'; 
+                font-size: 18pt; 
+                font-weight: bold; 
+                border-radius: 4px; 
+                padding: 10px; 
+            }
+
+            /* === 分割器 === */
+            QSplitter::handle { background-color: #222; }
+            QSplitter::handle:hover { background-color: #00e676; }
+        """)
     # =================================================================
     # 🟢 [修复版] init_single_mode (修复 zoom_img 初始化顺序)
     # =================================================================
@@ -522,7 +632,8 @@ class CyberApp(QMainWindow):
         # 暗场参数容器
         self.container_dark = QWidget()
         lay_dark = QVBoxLayout(self.container_dark)
-        lay_dark.setContentsMargins(0, 0, 0, 0)
+        lay_dark.setContentsMargins(0, 5, 0, 5)  # 增加上下间距
+        lay_dark.setSpacing(8)
         h_d1 = QHBoxLayout()
         h_d1.addWidget(QLabel("Abs Thresh:"))
         self.sb_thresh_abs = QSpinBox()
@@ -593,18 +704,35 @@ class CyberApp(QMainWindow):
 
         # 结果栏
         h_res_det = QHBoxLayout()
-        h_res_det.setSpacing(5)
+        h_res_det.setSpacing(10)
         self.lbl_result = QLabel("READY")
         self.lbl_result.setObjectName("ResultLabel")
         self.lbl_result.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_result.setFixedWidth(280)
-        self.lbl_result.setStyleSheet(
-            "background-color: #1a1a1a; color: #666; border: 2px solid #444; border-radius: 6px; font-weight: bold; font-size: 11pt;")
+        # 初始样式 (灰色待机状态)
+        self.lbl_result.setStyleSheet("""
+                    background-color: #1a1a1a; 
+                    color: #555; 
+                    border: 2px dashed #333; 
+                    border-radius: 6px; 
+                    font-family: 'Impact', 'Segoe UI Black'; /* 更有冲击力的字体 */
+                    font-size: 16pt;
+                    letter-spacing: 2px;
+                """)
+
         h_res_det.addWidget(self.lbl_result)
         self.lbl_detail = QLabel("Wait Selection")
-        self.lbl_detail.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_detail.setStyleSheet(
-            "background-color: #1a1a1a; color: #ccc; border: 2px solid #444; border-radius: 6px; font-size: 10pt; padding: 2px;")
+        self.lbl_detail.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+        self.lbl_detail.setStyleSheet("""
+                    background-color: #0f0f0f; 
+                    color: #aaa; 
+                    border: 1px solid #333; 
+                    border-left: 4px solid #555; /* 左侧装饰条 */
+                    border-radius: 4px; 
+                    font-family: 'Consolas'; 
+                    font-size: 10pt; 
+                    padding: 0 10px;
+                """)
         h_res_det.addWidget(self.lbl_detail, stretch=1)
         mid_layout.addLayout(h_res_det)
 
@@ -696,9 +824,22 @@ class CyberApp(QMainWindow):
         h_info.addWidget(QLabel("Shortcuts: [WASD] Pan | [Space] View | [Ctrl+→] Next"))
         h_info.addStretch()
 
-        self.lbl_cursor_info = QLabel("X: --  Y: --  Val: --")
-        self.lbl_cursor_info.setStyleSheet(
-            "color: #00e676; font-weight: bold; font-family: Consolas; background: #222; padding: 2px 8px; border-radius: 4px;")
+        # 👇 [修改后] 更酷炫的样式
+        self.lbl_cursor_info = QLabel("X:---- Y:---- V:----")
+        self.lbl_cursor_info.setStyleSheet("""
+                    QLabel {
+                        font-family: 'Consolas', 'Courier New', monospace; /* 强制等宽 */
+                        font-size: 11pt;
+                        font-weight: bold;
+                        color: #00e676;           /* 亮青色文字 */
+                        background-color: #000;   /* 纯黑背景 */
+                        border: 1px solid #333;
+                        border-radius: 4px;
+                        padding: 4px 10px;
+                        min-width: 220px;         /* 固定宽度防止跳动 */
+                    }
+                """)
+        # 👆 [修改结束]
         h_info.addWidget(self.lbl_cursor_info)
 
         right_layout.addLayout(h_info)
@@ -785,6 +926,7 @@ class CyberApp(QMainWindow):
     #     self.worker.result_signal.connect(self.on_single_finished)
     #     self.worker.start()
 
+
     def on_single_finished(self, vis_raw, vis_grid, data, img_raw):
         # 1. 缓存数据和图片
         self.current_data_cache = data
@@ -850,6 +992,24 @@ class CyberApp(QMainWindow):
         # 1. 更新表格 (瞬间完成，无需循环)
         self.model.update_data(data)
 
+        # 🟢 [新增辅助函数] 创建发光笔刷 (放在 CyberApp 类内部或外部均可，这里建议放方法内部)
+        def create_glow_brush(color_hex, alpha_center=200, alpha_edge=0):
+            base_col = QColor(color_hex)
+            # 径向渐变：中心不透明 -> 边缘透明
+            grad = QRadialGradient(0.5, 0.5, 0.5)  # 中心(0.5,0.5) 半径0.5 (相对坐标)
+            grad.setCoordinateMode(QRadialGradient.CoordinateMode.ObjectBoundingMode)
+
+            c_center = QColor(base_col)
+            c_center.setAlpha(alpha_center)
+
+            c_edge = QColor(base_col)
+            c_edge.setAlpha(alpha_edge)
+
+            grad.setColorAt(0.0, c_center)  # 中心核心
+            grad.setColorAt(0.7, c_edge)  # 边缘光晕
+            grad.setColorAt(1.0, c_edge)
+
+            return QBrush(grad)
         # 2. 收集 Graph 绘图用的数据 (这一步还是需要的，但它是纯数据处理，很快)
         self.cursor_lines = []
         spots_bright = []
@@ -914,34 +1074,38 @@ class CyberApp(QMainWindow):
         # if spots_cls_sp:
         #     setup_scatter(spots_cls_sp, pg.mkBrush(255, 50, 50, 180), 's', size=14, pen=pg.mkPen('w', width=1),
         #                   name="Sp-Cluster")
+        # --- 🟢 绘制各组数据 (应用 Glow Brush) ---
+
+        # 1. Bright (White) Points -> 绿色光球
         if spots_bright:
-            # 👇 [修改] 增加 name 参数，让图例显示
-            s1 = pg.ScatterPlotItem(size=8, pen=None, brush=pg.mkBrush(0, 255, 0, 200), symbol='o', name='Bright')
+            glow_brush = create_glow_brush("#00e676", 255, 0)
+            # size 设大一点 (如 12-15)，因为边缘是透明的
+            s1 = pg.ScatterPlotItem(size=12, pen=None, brush=glow_brush, symbol='o', name='Bright', hoverable=True)
             s1.addPoints(spots_bright)
-            # ... (绑定点击事件) ...
             if hasattr(self, 'on_scatter_clicked'): s1.sigClicked.connect(self.on_scatter_clicked)
             self.graph.addItem(s1)
 
+        # 2. Dark Points -> 蓝色光球
         if spots_dark:
-            s2 = pg.ScatterPlotItem(size=8, pen=None, brush=pg.mkBrush(30, 144, 255, 200), symbol='o', name='Dark')
+            glow_brush = create_glow_brush("#2979ff", 255, 0)
+            s2 = pg.ScatterPlotItem(size=12, pen=None, brush=glow_brush, symbol='o', name='Dark', hoverable=True)
             s2.addPoints(spots_dark)
             if hasattr(self, 'on_scatter_clicked'): s2.sigClicked.connect(self.on_scatter_clicked)
             self.graph.addItem(s2)
 
+        # 3. Channel Cluster -> 黄色方块 (带光晕)
         if spots_cls_ch:
-            # 这里的 spots_cluster 如果你要区分 黄/红 颜色，请参考之前的代码拆分
-            # 这里演示最基础的补回
-            s3 = pg.ScatterPlotItem(size=14, pen=pg.mkPen('w', width=1), brush=pg.mkBrush(255, 255, 0, 180), symbol='s',
-                                    name='Ch-Cluster')
+            glow_brush = create_glow_brush("#ffea00", 255, 0)
+            # 用 's' (square) 或 'd' (diamond)
+            s3 = pg.ScatterPlotItem(size=50, pen=None, brush=glow_brush, symbol='d', name='Ch-Cluster', hoverable=True)
             s3.addPoints(spots_cls_ch)
             if hasattr(self, 'on_scatter_clicked'): s3.sigClicked.connect(self.on_scatter_clicked)
             self.graph.addItem(s3)
 
+        # 4. Spatial Cluster -> 红色方块
         if spots_cls_sp:
-            # 这里的 spots_cluster 如果你要区分 黄/红 颜色，请参考之前的代码拆分
-            # 这里演示最基础的补回
-            s4 = pg.ScatterPlotItem(size=14, pen=pg.mkPen('w', width=1), brush=pg.mkBrush(255, 50, 50, 180), symbol='s',
-                                    name='Sp-Cluster')
+            glow_brush = create_glow_brush("#ff1744", 255, 0)
+            s4 = pg.ScatterPlotItem(size=50, pen=None, brush=glow_brush, symbol='d', name='Sp-Cluster', hoverable=True)
             s4.addPoints(spots_cls_sp)
             if hasattr(self, 'on_scatter_clicked'): s4.sigClicked.connect(self.on_scatter_clicked)
             self.graph.addItem(s4)

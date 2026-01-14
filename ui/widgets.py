@@ -12,7 +12,7 @@ from PyQt6.QtCore import (
 from PyQt6.QtGui import (
     QPainter, QPen, QColor, QImage, QPixmap, QFont
 )
-
+from PyQt6.QtCore import QPointF  # 🟢 补上 QPointF
 # 1. 放入 DefectTableModel 类
 # ==========================================
 # 🚀 高性能数据模型 (替换 QTableWidget)
@@ -533,6 +533,80 @@ class ZoomableGraphicsView(QGraphicsView):
         self.highlight_item = None
         self.minimap = MiniMapOverlay(self)
 
+    # 🟢 [新增] 战术 HUD 绘制层
+    def drawForeground(self, painter, rect):
+        super().drawForeground(painter, rect)
+
+        # 1. 获取当前可视区域 (Scene坐标系)
+        scene_rect = self.mapToScene(self.viewport().rect()).boundingRect()
+        l, t, w, h = scene_rect.left(), scene_rect.top(), scene_rect.width(), scene_rect.height()
+
+        # 2. 计算缩放补偿 (保证HUD线条在屏幕上看起来粗细恒定)
+        # m11 是水平缩放因子
+        scale_factor = self.transform().m11()
+        if scale_factor == 0: return
+
+        # 定义屏幕像素单位的尺寸
+        line_width = 2.0 / scale_factor  # 2px 线宽
+        corner_len = 20.0 / scale_factor  # 20px 角标长度
+        margin = 15.0 / scale_factor  # 15px 边距
+        text_size = 12.0 / scale_factor  # 字体大小
+
+        painter.save()
+
+        # 3. 设置画笔 (霓虹绿)
+        neon_color = QColor("#00e676")
+        pen = QPen(neon_color)
+        pen.setWidthF(line_width)
+        pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
+        # 4. 绘制四个战术角标 (Tactical Corners)
+        # 左上
+        painter.drawLine(QPointF(l + margin, t + margin + corner_len), QPointF(l + margin, t + margin))
+        painter.drawLine(QPointF(l + margin, t + margin), QPointF(l + margin + corner_len, t + margin))
+        # 右上
+        painter.drawLine(QPointF(l + w - margin - corner_len, t + margin), QPointF(l + w - margin, t + margin))
+        painter.drawLine(QPointF(l + w - margin, t + margin), QPointF(l + w - margin, t + margin + corner_len))
+        # 左下
+        painter.drawLine(QPointF(l + margin, t + h - margin - corner_len), QPointF(l + margin, t + h - margin))
+        painter.drawLine(QPointF(l + margin, t + h - margin), QPointF(l + margin + corner_len, t + h - margin))
+        # 右下
+        painter.drawLine(QPointF(l + w - margin - corner_len, t + h - margin),
+                         QPointF(l + w - margin, t + h - margin))
+        painter.drawLine(QPointF(l + w - margin, t + h - margin),
+                         QPointF(l + w - margin, t + h - margin - corner_len))
+
+        # 5. 绘制中心十字准星 (装饰性)
+        center_x, center_y = l + w / 2, t + h / 2
+        cross_len = 10.0 / scale_factor
+        gap = 5.0 / scale_factor
+
+        # 半透明准星
+        pen.setColor(QColor(0, 230, 118, 150))
+        pen.setWidthF(1.0 / scale_factor)
+        painter.setPen(pen)
+
+        painter.drawLine(QPointF(center_x - cross_len, center_y), QPointF(center_x - gap, center_y))
+        painter.drawLine(QPointF(center_x + gap, center_y), QPointF(center_x + cross_len, center_y))
+        painter.drawLine(QPointF(center_x, center_y - cross_len), QPointF(center_x, center_y - gap))
+        painter.drawLine(QPointF(center_x, center_y + gap), QPointF(center_x, center_y + cross_len))
+
+        # 6. 绘制底部信息文字 (模拟系统状态)
+        font = QFont("Consolas")
+        font.setPixelSize(int(text_size))  # 在场景坐标系下设置字体大小需转换，或者这里直接用 scale 调整
+        # 由于 QFont.setPixelSize 是屏幕像素，但在 drawForeground 里比较难控制，我们用 setPointSizeF
+        font.setPointSizeF(text_size * 0.8)
+        painter.setFont(font)
+        painter.setPen(QColor(0, 230, 118, 200))
+
+        status_text = "SYSTEM: ONLINE  |  FOV: TARGET LOCKED"
+        # 简单估算文字位置 (底部居中)
+        painter.drawText(QRectF(l, t + h - margin - text_size * 2, w, text_size * 2),
+                         Qt.AlignmentFlag.AlignCenter, status_text)
+
+        painter.restore()
     # 🟢 [补回] 3. 发送视野信号的辅助函数
     def emit_view_rect(self):
         if self.scene():
@@ -567,7 +641,8 @@ class ZoomableGraphicsView(QGraphicsView):
         if self.highlight_item:
             self.scene_obj.removeItem(self.highlight_item)
 
-        pen = QPen(Qt.GlobalColor.cyan)
+        # [修改] 高亮框也改成霓虹色
+        pen = QPen(QColor("#2979ff"))  # 亮红
         pen.setWidth(2)
         rect = QRectF(x - size / 2, y - size / 2, size, size)
         self.highlight_item = self.scene_obj.addRect(rect, pen)
@@ -579,6 +654,7 @@ class ZoomableGraphicsView(QGraphicsView):
         zoom_in = event.angleDelta().y() > 0
         factor = 1.25 if zoom_in else 1 / 1.25
         self.scale(factor, factor)
+        self.viewport().update()  # 强制重绘 HUD
         self.viewport().update()
         self.minimap.update()
         self.emit_view_rect()  # 🟢
