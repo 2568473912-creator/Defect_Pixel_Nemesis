@@ -85,6 +85,26 @@ class CyberApp(QMainWindow):
 
     # [重构] 将原来的 run_single_analysis 拆分，核心逻辑提炼为 trigger_analysis
     def trigger_analysis(self, path):
+        # 👇👇👇 [新增代码] 自动识别文件名切换模式 👇👇👇
+        # 逻辑：检测文件名关键字 -> 自动切换下拉框 -> 下拉框信号会自动触发 toggle_params -> 界面和参数自动更新
+        f_name = Path(path).name.lower()
+
+        # 1. 判断是否为暗场 (包含 'dark')
+        if "dark" in f_name:
+            if self.combo_mode.currentIndex() != 0:
+                self.combo_mode.setCurrentIndex(0)  # 切换到 Dark Field
+                # 打印日志或状态栏提示（可选）
+                print(f"🤖 Auto-Switch: Detected 'Dark' mode for {f_name}")
+
+        # 2. 判断是否为亮场 (包含 'mid')
+        elif "mid" in f_name:
+            if self.combo_mode.currentIndex() != 1:
+                self.combo_mode.setCurrentIndex(1)  # 切换到 Bright Field
+                print(f"🤖 Auto-Switch: Detected 'Bright' mode for {f_name}")
+
+        # 强制处理一下事件，确保 UI 在分析前已经刷新（比如直方图阈值线的切换）
+        QApplication.processEvents()
+        # 👆👆👆 [新增代码结束] 👆👆👆
         self.current_file_path = path
 
         # 设置忙碌光标
