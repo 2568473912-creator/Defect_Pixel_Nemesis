@@ -2,70 +2,53 @@ import cv2
 import numpy as np
 from numba import jit
 
-# 1. 放入 _numba_extract_points 函数 (注意装饰器 @jit)
+
+# 1. Numba 加速提取函数
 @jit(nopython=True)
-def _numba_extract_points(ys, xs, ch_neighbor_counts, sub_img, bg, img_gray_val, step, offset_x, offset_y, mode_int,
-                          is_16bit):
+def _numba_extract_points(ys, xs, sub_img, bg, img_gray_val, step, offset_x, offset_y, mode_int, is_16bit):
     """
-    Numba 加速的坏点提取逻辑
-    mode_int: 0=Dark, 1=Bright
+    Numba 加速提取 (不再负责 Cluster ID，只负责提取原始信息)
     """
     n = len(ys)
-
-    # 预分配结果数组
     res_gx = np.empty(n, dtype=np.int32)
     res_gy = np.empty(n, dtype=np.int32)
     res_val = np.empty(n, dtype=np.int32)
-    res_is_cluster = np.empty(n, dtype=np.int8)  # 1=Cluster, 0=Single
-    res_is_dark = np.empty(n, dtype=np.int8)  # 1=Dark, 0=Bright
+    res_polarity = np.empty(n, dtype=np.int8)  # 0=Bright, 1=Dark
 
     for i in range(n):
         py = ys[i]
         px = xs[i]
 
-        # 1. 获取邻域计数 (假设 ch_neighbor_counts 是 float32)
-        # 归一化：卷积结果是 255 的倍数
-        val_count = ch_neighbor_counts[py, px]
-        count = int(val_count / 255.0 + 0.5)
-
-        if count > 1:
-            res_is_cluster[i] = 1
-        else:
-            res_is_cluster[i] = 0
-
-        # 2. 坐标换算
+        # 1. 坐标换算
         gx = px * step + offset_x
         gy = py * step + offset_y
         res_gx[i] = gx
         res_gy[i] = gy
 
-        # 3. 极性判断
-        # 默认 Bright (White) -> is_dark = 0
+        # 2. 极性判断
         is_dark = 0
-        if mode_int == 1:  # Bright mode
+        if mode_int == 1:  # Bright mode logic
             if sub_img[py, px] < bg[py, px]:
                 is_dark = 1
-        res_is_dark[i] = is_dark
+        res_polarity[i] = is_dark
 
-        # 4. 获取像素值
+        # 3. 像素值
         raw_val = img_gray_val[gy, gx]
         if is_16bit:
             res_val[i] = int(raw_val / 256)
         else:
             res_val[i] = int(raw_val)
 
-    return res_gx, res_gy, res_val, res_is_cluster, res_is_dark
+    return res_gx, res_gy, res_val, res_polarity
 
-    pass
 
-# 2. 放入 CoreAlgorithm 类
+# 2. CoreAlgorithm 类
 class CoreAlgorithm:
     @staticmethod
     def robust_masked_blur(image, filter_size, bg_ceiling=None):
         if bg_ceiling is not None:
             mask = (image < bg_ceiling).astype(np.float32)
             kernel = np.ones((filter_size, filter_size), dtype=np.float32)
-            # cv2.filter2D 已经非常快了，保持原样
             sum_valid = cv2.filter2D(image * mask, -1, kernel, borderType=cv2.BORDER_REFLECT)
             count_valid = cv2.filter2D(mask, -1, kernel, borderType=cv2.BORDER_REFLECT)
             count_valid[count_valid == 0] = 1.0
@@ -96,36 +79,36 @@ class CoreAlgorithm:
             img_gray_val = img_raw
 
         step = int(np.sqrt(channels))
-        detected_points = []
-
-        # 显示用底图
-        vis_display = cv2.normalize(img_raw, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
-        if len(vis_display.shape) == 2: vis_display = cv2.cvtColor(vis_display, cv2.COLOR_GRAY2RGB)
-
         h_img, w_img = img_raw.shape[:2]
 
-        # 预备 Numba 需要的参数
         mode_int = 0 if mode == 'Dark' else 1
         is_16bit_bool = bool(is_16bit)
 
+        # 暂存所有点
+        raw_points = []
+
+        # 全局计数器
+        global_ch_cid = 1
+        global_sp_cid = 1
+
+        # ==========================================================
+        # Phase A: 提取 & 同通道 Cluster 计算 (在子图循环中)
+        # ==========================================================
         for offset_y in range(step):
             for offset_x in range(step):
                 ch_idx = (offset_y * step + offset_x) + 1
                 sub_img = img_raw[offset_y::step, offset_x::step].astype(np.float32)
 
-                # 1. 计算背景
+                # 1. 计算背景 & Mask
                 if mode == 'Dark':
                     thresh_val = param1 * 256 if is_16bit else param1
                     bg_ceiling = thresh_val * 2
                     bg = CoreAlgorithm.robust_masked_blur(sub_img, filter_size, bg_ceiling)
-                else:
-                    bg = CoreAlgorithm.robust_masked_blur(sub_img, filter_size, None)
-
-                # 2. 生成 Mask
-                if mode == 'Dark':
                     diff = sub_img - bg
                     _, mask = cv2.threshold(diff, thresh_val, 255, cv2.THRESH_BINARY)
+                    mask = mask.astype(np.uint8)
                 else:
+                    bg = CoreAlgorithm.robust_masked_blur(sub_img, filter_size, None)
                     pct = param1 / 100.0
                     mask_high = (sub_img > bg * (1 + pct)).astype(np.uint8) * 255
                     mask_low = (sub_img < bg * (1 - pct)).astype(np.uint8) * 255
@@ -133,154 +116,229 @@ class CoreAlgorithm:
 
                 if cv2.countNonZero(mask) == 0: continue
 
-                # 3. 提取点信息 (优化版)
-                # mask = mask.astype(np.uint8)
-                kernel_c = np.ones((ch_dist, ch_dist), dtype=np.float32)
-                ch_neighbor_counts = cv2.filter2D(mask, -1, kernel_c, borderType=cv2.BORDER_CONSTANT)
+                # 2. 提取原始点
+                ys, xs = np.where(mask > 0)
+                r_gx, r_gy, r_val, r_pol = _numba_extract_points(
+                    ys, xs, sub_img, bg, img_gray_val,
+                    step, offset_x, offset_y, mode_int, is_16bit
+                )
 
-                # 仅在需要提取坐标时转为 uint8 (节省这次转换开销)
-                mask_u8 = mask.astype(np.uint8)
-                ys, xs = np.where(mask_u8 > 0)
+                # 3. 计算同通道 Cluster (基于子图 Mask)
+                # 使用 float32 避免 filter2D 溢出 (255+255=510)
+                mask_f = mask.astype(np.float32)
+                k_size = ch_dist if ch_dist > 0 else 1
+                if k_size % 2 == 0: k_size += 1
+                kernel = np.ones((k_size, k_size), np.float32)
 
-                # 🚀 替换原有的 for zip(ys, xs) 循环，改用 Numba 加速
-                if len(ys) > 0:
-                    r_gx, r_gy, r_val, r_cluster, r_dark = _numba_extract_points(
-                        ys, xs, ch_neighbor_counts, sub_img, bg, img_gray_val,
-                        step, offset_x, offset_y, mode_int, is_16bit_bool
-                    )
+                # 计算密度: 如果 density > 255，说明除了自己还有别人
+                density = cv2.filter2D(mask_f, -1, kernel, borderType=cv2.BORDER_CONSTANT)
 
-                    # 快速构建结果列表 (Python 构建 dict 还是比较快，只要避免了内部的计算)
-                    for i in range(len(ys)):
-                        raw_type = "Channel_Cluster" if r_cluster[i] else "Single"
-                        polarity = "Dark" if r_dark[i] else "Bright"
-                        detected_points.append({
-                            'gx': int(r_gx[i]),
-                            'gy': int(r_gy[i]),
-                            'ch': ch_idx,
-                            'raw_type': raw_type,
-                            'final_type': raw_type,
-                            'val': int(r_val[i]),
-                            'polarity': polarity
-                        })
+                # 生成连通域 (用于赋 ID)
+                # 这里依然使用 density > 0 来生成潜在区域，但在统计 Size 时会严格剔除孤立点
+                cluster_mask = (density > 0).astype(np.uint8)
+                num_labels, labels = cv2.connectedComponents(cluster_mask, connectivity=8)
 
-        # ==========================================================
-        # 4. 全局聚合 (优化版：向量化赋值)
-        # ==========================================================
-        if detected_points:
-            # 🚀 向量化：一次性生成全局掩膜，不再使用 for 循环
-            g_mask = np.zeros((h_img, w_img), dtype=np.uint8)
-
-            # 提取所有坐标
-            all_gys = [pt['gy'] for pt in detected_points]
-            all_gxs = [pt['gx'] for pt in detected_points]
-
-            # Numpy 高级索引赋值 (极快)
-            g_mask[all_gys, all_gxs] = 1
-
-            # 卷积计算邻域
-            g_kernel = np.ones((g_dist, g_dist), dtype=np.float32)
-            neighbor_counts = cv2.filter2D(g_mask.astype(np.float32), -1, g_kernel, borderType=cv2.BORDER_CONSTANT)
-
-            # 🚀 向量化读取计数 (可选优化，这里用列表推导式也很快)
-            # 为了保持 detected_points 字典结构的完整性，这里用 lookup
-            # 这里的 lookup 因为已经是指针/整数访问，速度足够快
-            for pt in detected_points:
-                count = neighbor_counts[pt['gy'], pt['gx']]
-                if count > 1 and pt['raw_type'] == "Single":
-                    pt['final_type'] = "Spatial_Cluster"
-
-            # ==========================================================
-            # 4.5: 计算 Cluster Size 和 Cluster ID (新增)
-            # ==========================================================
-            # 1. 先初始化所有点的 ID 为 0
-            for pt in detected_points:
-                pt['size'] = 1
-                pt['cluster_id'] = 0
-
-            cluster_pts = [p for p in detected_points if "Cluster" in p['final_type']]
-            if cluster_pts:
-                mask_cls = np.zeros((h_img, w_img), dtype=np.uint8)
-                c_gys = [p['gy'] for p in cluster_pts]
-                c_gxs = [p['gx'] for p in cluster_pts]
-                mask_cls[c_gys, c_gxs] = 255
-
-                step = int(np.sqrt(channels))
-                visual_kernel_size = max(g_dist, ch_dist * step)
-                if visual_kernel_size % 2 == 0: visual_kernel_size += 1
-
-                kernel = np.ones((visual_kernel_size, visual_kernel_size), np.uint8)
-                dilated_mask = cv2.dilate(mask_cls, kernel, iterations=1)
-
-                # 2. 获取连通域标签 (Labels)
-                num_labels, labels = cv2.connectedComponents(dilated_mask, connectivity=8)
+                # 统计 Valid Cluster Size
+                # 只有 density > 255 的点才算作“有效 Cluster 成员”
+                # density 的值大约是 255 * N (N是邻域内像素数)
+                # 我们使用 255.5 作为阈值，排除掉只有自己的情况
+                is_valid_member = (density > 255.5) & (mask > 0)
 
                 label_counts = {}
-                for pt in cluster_pts:
-                    lbl = labels[pt['gy'], pt['gx']]
-                    if lbl > 0:
-                        label_counts[lbl] = label_counts.get(lbl, 0) + 1
+                # 仅统计是有效成员的点
+                valid_labels = labels[is_valid_member]
+                if len(valid_labels) > 0:
+                    label_counts = dict(zip(*np.unique(valid_labels, return_counts=True)))
 
-                # 3. 将 Label 作为 Cluster ID 写入点信息
-                for pt in cluster_pts:
-                    lbl = labels[pt['gy'], pt['gx']]
-                    if lbl > 0:
-                        pt['size'] = label_counts[lbl]
-                        pt['cluster_id'] = lbl  # <--- [新增] 记录 ID
+                # 建立 ID 映射
+                local_to_global_id = {}
+                local_to_size = {}
+                for lbl, sz in label_counts.items():
+                    if sz > 1:  # 再次确认，只有成员数 > 1 才是 Cluster
+                        local_to_global_id[lbl] = global_ch_cid
+                        global_ch_cid += 1
+                        local_to_size[lbl] = sz
+
+                # 4. 回填数据
+                for k in range(len(ys)):
+                    py, px = ys[k], xs[k]
+
+                    # 只有当自己也是 Valid Member 时，才赋予 Cluster ID
+                    # 这解决了“我虽然在别人的光晕里，但我自己没邻居”的情况
+                    my_density = density[py, px]
+                    lbl = labels[py, px]
+
+                    cid = 0
+                    csize = 1
+
+                    if my_density > 255.5:  # 我有邻居
+                        if lbl in local_to_global_id:
+                            cid = local_to_global_id[lbl]
+                            csize = local_to_size[lbl]
+
+                    polarity = "Dark" if r_pol[k] else "Bright"
+                    raw_points.append({
+                        'gx': int(r_gx[k]),
+                        'gy': int(r_gy[k]),
+                        'ch': ch_idx,
+                        'val': int(r_val[k]),
+                        'polarity': polarity,
+                        'ch_cid': cid,
+                        'ch_size': csize,
+                        'sp_cid': 0, 'sp_size': 1
+                    })
+
+        final_points = []
 
         # ==========================================================
-        # 5. 绘图逻辑 (优化版：向量化绘图)
+        # Phase B: 全局 Cluster 计算 (循环外)
+        # ==========================================================
+        if raw_points:
+            # 1. 构建全局 Mask
+            mask_sp = np.zeros((h_img, w_img), dtype=np.float32)  # 直接用 float32
+            point_map = {}  # 快速查找点索引
+            for idx, p in enumerate(raw_points):
+                mask_sp[p['gy'], p['gx']] = 255.0
+                point_map[(p['gx'], p['gy'])] = idx
+
+            # 2. 卷积计算
+            k_size_sp = g_dist if g_dist > 0 else 1
+            if k_size_sp % 2 == 0: k_size_sp += 1
+            kernel_sp = np.ones((k_size_sp, k_size_sp), np.float32)
+
+            density_sp = cv2.filter2D(mask_sp, -1, kernel_sp, borderType=cv2.BORDER_CONSTANT)
+
+            # 3. 连通域
+            cluster_mask_sp = (density_sp > 0).astype(np.uint8)
+            num_labels_sp, labels_sp = cv2.connectedComponents(cluster_mask_sp, connectivity=8)
+
+            # 4. 统计 Valid Size
+            # 同样逻辑：只有 density > 255.5 的点才是有效 Cluster 成员
+            # 我们需要遍历 raw_points 来统计，因为 mask 上只有点的位置有值
+
+            sp_label_counts = {}
+            valid_cluster_members = []
+
+            for p in raw_points:
+                d_val = density_sp[p['gy'], p['gx']]
+                lbl = labels_sp[p['gy'], p['gx']]
+
+                if d_val > 255.5:  # 核心判定：我有邻居
+                    valid_cluster_members.append((p, lbl))
+                    sp_label_counts[lbl] = sp_label_counts.get(lbl, 0) + 1
+
+            # 5. 建立 ID 映射
+            sp_label_to_id = {}
+            sp_label_to_size = {}
+
+            # 全局 ID 接在 Phase A 后面
+            start_sp_id = global_ch_cid
+
+            for lbl, sz in sp_label_counts.items():
+                if sz > 1:
+                    sp_label_to_id[lbl] = start_sp_id
+                    start_sp_id += 1
+                    sp_label_to_size[lbl] = sz
+
+            # 6. 回填数据
+            # 注意：只有在 valid_cluster_members 里的点才能获得 ID
+            # 其他点即使被连通域覆盖，也是 Single (因为它自己 Density <= 255)
+            for p, lbl in valid_cluster_members:
+                if lbl in sp_label_to_id:
+                    p['sp_cid'] = sp_label_to_id[lbl]
+                    p['sp_size'] = sp_label_to_size[lbl]
+
+            # ==========================================================
+            # Phase C: 结果拆分
+            # ==========================================================
+            for p in raw_points:
+                is_ch_cluster = p['ch_size'] > 1
+                is_sp_cluster = p['sp_size'] > 1
+
+                if not is_ch_cluster and not is_sp_cluster:
+                    entry = p.copy()
+                    entry['final_type'] = "Single"
+                    entry['cluster_id'] = 0
+                    entry['size'] = 1
+                    final_points.append(entry)
+                else:
+                    if is_ch_cluster:
+                        entry = p.copy()
+                        entry['final_type'] = "Channel_Cluster"
+                        entry['cluster_id'] = p['ch_cid']
+                        entry['size'] = p['ch_size']
+                        final_points.append(entry)
+
+                    if is_sp_cluster:
+                        entry = p.copy()
+                        entry['final_type'] = "Spatial_Cluster"
+                        entry['cluster_id'] = p['sp_cid']
+                        entry['size'] = p['sp_size']
+                        final_points.append(entry)
+
+        final_points.sort(key=lambda x: (0 if x['cluster_id'] > 0 else 1, x['cluster_id']))
+
+        # 准备绘图
+        vis_display = cv2.normalize(img_raw, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+        if len(vis_display.shape) == 2: vis_display = cv2.cvtColor(vis_display, cv2.COLOR_GRAY2RGB)
+
+        # ==========================================================
+        # 绘图逻辑
         # ==========================================================
         PADDING = 8
         LINE_THICKNESS = 1
+        drawn_singles = set()
 
-        # 5.1 绘制点 (使用 Numpy 索引批量赋值颜色)
-        # 将点分类
         normal_pts_indices = []
         normal_colors = []
-        cluster_pts_for_bbox = []
+        cluster_pts_to_draw = []
 
-        for pt in detected_points:
-            if "Cluster" not in pt['final_type']:
-                is_dark = pt['polarity'] == "Dark"
-                color = [0, 255, 0] if not is_dark else [255, 0, 0]
-                # vis_display[pt['gy'], pt['gx']] = color # 单点赋值较慢
-                normal_pts_indices.append((pt['gy'], pt['gx']))
-                normal_colors.append(color)
+        for pt in final_points:
+            idx = (pt['gy'], pt['gx'])
+            if pt['cluster_id'] > 0:
+                cluster_pts_to_draw.append(pt)
             else:
-                cluster_pts_for_bbox.append(pt)
+                if idx not in drawn_singles:
+                    is_dark = pt['polarity'] == "Dark"
+                    color = [0, 255, 0] if not is_dark else [255, 0, 0]
+                    normal_pts_indices.append((pt['gy'], pt['gx']))
+                    normal_colors.append(color)
+                    drawn_singles.add(idx)
 
-        # 🚀 批量绘制普通点
         if normal_pts_indices:
-            # 拆分坐标和颜色
             ind = np.array(normal_pts_indices)
             cols = np.array(normal_colors, dtype=np.uint8)
-            # 批量赋值
             vis_display[ind[:, 0], ind[:, 1]] = cols
 
-        # 5.2 绘制 Cluster 包围框 (保持逻辑，使用向量化 Mask)
-        if cluster_pts_for_bbox:
-            cluster_mask = np.zeros((h_img, w_img), dtype=np.uint8)
-            # 🚀 向量化赋值
-            c_gys = [p['gy'] for p in cluster_pts_for_bbox]
-            c_gxs = [p['gx'] for p in cluster_pts_for_bbox]
-            cluster_mask[c_gys, c_gxs] = 255
+        from collections import defaultdict
+        groups = defaultdict(list)
+        for pt in cluster_pts_to_draw:
+            groups[pt['cluster_id']].append(pt)
 
-            kernel = np.ones((g_dist, g_dist), np.uint8)
-            dilated_cluster_mask = cv2.dilate(cluster_mask, kernel, iterations=1)
-            contours, _ = cv2.findContours(dilated_cluster_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        for cid, group_pts in groups.items():
+            if not group_pts: continue
+            ftype = group_pts[0]['final_type']
+
+            temp_mask = np.zeros((h_img, w_img), dtype=np.uint8)
+            gys = [p['gy'] for p in group_pts]
+            gxs = [p['gx'] for p in group_pts]
+            temp_mask[gys, gxs] = 255
+
+            # 画框时稍微膨胀一点以便看清
+            v_dist = 3
+            kernel = np.ones((v_dist, v_dist), np.uint8)
+            dilated = cv2.dilate(temp_mask, kernel, iterations=1)
+            contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
             for cnt in contours:
                 x, y, w, h = cv2.boundingRect(cnt)
-                # 统计极性逻辑保持不变
-                dark_count = 0
-                total_count_in_box = 0
-                for pt in cluster_pts_for_bbox:
-                    if x <= pt['gx'] < x + w and y <= pt['gy'] < y + h:
-                        total_count_in_box += 1
-                        if pt['polarity'] == "Dark": dark_count += 1
+                dark_count = sum(1 for p in group_pts if p['polarity'] == 'Dark')
+                is_mostly_dark = (dark_count / len(group_pts) > 0.5)
 
-                is_mostly_dark = (total_count_in_box > 0) and (dark_count / total_count_in_box > 0.5)
-                c_color = (0, 0, 255) if not is_mostly_dark else (255, 0, 255)
+                if ftype == 'Channel_Cluster':
+                    c_color = (0, 255, 255) if not is_mostly_dark else (0, 128, 128)
+                else:
+                    c_color = (0, 0, 255) if not is_mostly_dark else (255, 0, 255)
 
                 tl_x = max(0, x - PADDING)
                 tl_y = max(0, y - PADDING)
@@ -288,18 +346,16 @@ class CoreAlgorithm:
                 br_y = min(h_img, y + h + PADDING)
                 cv2.rectangle(vis_display, (tl_x, tl_y), (br_x, br_y), c_color, LINE_THICKNESS)
 
-        return vis_display, detected_points
+        return vis_display, final_points
 
     @staticmethod
     def generate_channel_grid(img_raw, channels):
-        # 保持原样，这部分主要是切片操作，已经是 Numpy 原生速度
         if img_raw is None or channels <= 1: return img_raw
         if len(img_raw.shape) == 3:
             img_gray = cv2.cvtColor(img_raw, cv2.COLOR_BGR2GRAY)
         else:
             img_gray = img_raw
         if img_gray.dtype == np.uint16:
-            # 右移 8 位 等同于 除以 256 (仅对整数有效)
             img_vis_base = (img_gray >> 8).astype(np.uint8)
         else:
             img_vis_base = img_gray.astype(np.uint8)
@@ -329,46 +385,39 @@ class CoreAlgorithm:
 
     @staticmethod
     def get_stats(data, img_shape, global_dist):
-        # 1. 基础计数
-        white_points = [d for d in data if d.get('polarity', 'Bright') == 'Bright']
-        black_points = [d for d in data if d.get('polarity', 'Bright') == 'Dark']
-        cnt_pts_white = len(white_points)
-        cnt_pts_black = len(black_points)
+        unique_white = set()
+        unique_black = set()
+        cls_white_ids = set()
+        cls_black_ids = set()
 
-        # 2. 计算 Cluster 团数量 (优化版)
-        def count_clusters(pt_list):
-            c_pts = [d for d in pt_list if d['final_type'] != 'Single']
-            if not c_pts: return 0
+        for d in data:
+            coord = (d['gx'], d['gy'])
+            ftype = d['final_type']
+            polarity = d.get('polarity', 'Bright')
 
-            h, w = img_shape[:2]
-            temp_mask = np.zeros((h, w), dtype=np.uint8)
+            if polarity == 'Bright':
+                unique_white.add(coord)
+            else:
+                unique_black.add(coord)
 
-            # 🚀 向量化赋值：替代原来的 for 循环
-            if c_pts:
-                gys = [cp['gy'] for cp in c_pts]
-                gxs = [cp['gx'] for cp in c_pts]
-                temp_mask[gys, gxs] = 255
-
-            kernel = np.ones((global_dist, global_dist), np.uint8)
-            dilated = cv2.dilate(temp_mask, kernel, iterations=1)
-            num_labels, _, _, _ = cv2.connectedComponentsWithStats(dilated, connectivity=8)
-            return num_labels - 1
-
-        cnt_cls_white = count_clusters(white_points)
-        cnt_cls_black = count_clusters(black_points)
+            if "Cluster" in ftype:
+                cid = d.get('cluster_id', 0)
+                if cid > 0:
+                    if polarity == 'Bright':
+                        cls_white_ids.add(cid)
+                    else:
+                        cls_black_ids.add(cid)
 
         return {
-            "total_pts": len(data),
-            "white_pts": cnt_pts_white,
-            "black_pts": cnt_pts_black,
-            "white_cls": cnt_cls_white,
-            "black_cls": cnt_cls_black
+            "total_pts": len(unique_white) + len(unique_black),
+            "white_pts": len(unique_white),
+            "black_pts": len(unique_black),
+            "white_cls": len(cls_white_ids),
+            "black_cls": len(cls_black_ids)
         }
+
     @staticmethod
     def run_dispatch(img, params):
-        """
-        根据参数模式 (Dark/Bright) 调度不同的处理函数
-        """
         if params['mode'] == 'Dark':
             return CoreAlgorithm.process_dark_field(
                 img, params['ch'], params['fs'],
@@ -379,4 +428,3 @@ class CoreAlgorithm:
                 img, params['ch'], params['fs'],
                 params['thresh'], params['ch_dist'], params['g_dist']
             )
-    pass
