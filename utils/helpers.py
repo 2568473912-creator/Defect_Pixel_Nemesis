@@ -4,6 +4,8 @@ import csv
 import cv2
 import xlsxwriter
 from pathlib import Path
+import numpy as np  # 🟢 [新增] 必须导入 numpy
+from utils.logger import log  # 🟢 导入日志
 from PyQt6.QtWidgets import QDialog  # 部分 helper 可能用到
 
 
@@ -39,6 +41,69 @@ def get_safe_roi(image_shape, x, y, w, h):
 
     return x, y, final_w, final_h
 
+
+# 🟢 [新增] FileHandler 类 (负责安全的图片读取)
+class FileHandler:
+    @staticmethod
+    def load_image_file(file_path, width, height, channels, bit_depth):
+        """
+        统一读取图像文件 (支持 Raw/Bin/Bmp/Png/Jpg) 并包含异常处理
+        """
+        try:
+            log.info(f"Loading image: {file_path} | Params: W={width}, H={height}, C={channels}, Bit={bit_depth}")
+
+            if not os.path.exists(file_path):
+                raise FileNotFoundError(f"File not found: {file_path}")
+
+            ext = os.path.splitext(file_path)[-1].lower()
+
+            # --- RAW / BIN ---
+            if ext in ['.raw', '.bin']:
+                file_size = os.path.getsize(file_path)
+                expected_pixels = width * height * channels
+
+                # 简单估算理论大小 (仅用于日志警告)
+                bytes_per_pixel = 2 if bit_depth > 8 else 1
+                expected_size = expected_pixels * bytes_per_pixel
+
+                if file_size != expected_size:
+                    log.warning(f"File size mismatch! Real: {file_size}, Expected (approx): {expected_size}")
+
+                dtype = np.uint16 if bit_depth > 8 else np.uint8
+
+                # 读取数据
+                img = np.fromfile(file_path, dtype=dtype)
+
+                # 校验数据完整性
+                if img.size != expected_pixels:
+                    error_msg = f"Pixel count mismatch. Read {img.size}, expected {width}x{height}x{channels}={expected_pixels}"
+                    log.error(error_msg)
+                    raise ValueError(error_msg)
+
+                img = img.reshape((height, width, channels))
+
+                if channels == 3:
+                    img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+
+                return img
+
+            # --- BMP / PNG / JPG ---
+            elif ext in ['.bmp', '.jpg', '.jpeg', '.png', '.tif', '.tiff']:
+                # 支持中文路径读取
+                img = cv2.imdecode(np.fromfile(file_path, dtype=np.uint8), -1)
+                if img is None:
+                    raise IOError(f"OpenCV failed to decode image: {file_path}")
+
+                # 如果是灰度图但需要当做多通道处理 (或者反之)，这里视情况转换
+                # 这里保持原样返回，由 Worker 或 Algorithm 进一步处理
+                return img
+
+            else:
+                raise TypeError(f"Unsupported file extension: {ext}")
+
+        except Exception as e:
+            log.error(f"Failed to load image: {file_path}\nError: {str(e)}", exc_info=True)
+            return None
 
 # 3. 放入 ExportHandler 类
 class ExportHandler:
@@ -78,7 +143,7 @@ class ExportHandler:
                         d.get('size', 1)
                     ])
         except Exception as e:
-            print(f"CSV Error: {e}")
+            log.error(f"CSV Export Error: {e}")  # 🟢 [修改] print -> log.error
 
         # 2. 生成 Excel
         # 🟢 [定义 excel_path]
@@ -217,6 +282,6 @@ class ExportHandler:
             return str(excel_path)
 
         except Exception as e:
-            print(f"Excel Export Error: {e}")
+            log.error(f"Excel Export Error: {e}", exc_info=True)  # 🟢 [修改] print -> log.error
             return None
     pass

@@ -3,11 +3,64 @@ import numpy as np
 from numba import jit
 
 
+# ==========================================================
+# 🟢 新增：内存优化类 (替代字典)
+# ==========================================================
+class DefectPoint:
+    # 使用 __slots__ 限制属性，避免创建 __dict__，显著节省内存
+    __slots__ = (
+        'gx', 'gy', 'ch', 'val', 'polarity',
+        'ch_cid', 'ch_size', 'sp_cid', 'sp_size',
+        'final_type', 'cluster_id', 'size',
+        'CropPath'  # 预留字段，兼容 Excel 导出时的截图路径
+    )
+
+    def __init__(self, gx, gy, ch, val, polarity, ch_cid=0, ch_size=1, sp_cid=0, sp_size=1):
+        self.gx = gx
+        self.gy = gy
+        self.ch = ch
+        self.val = val
+        self.polarity = polarity
+        self.ch_cid = ch_cid
+        self.ch_size = ch_size
+        self.sp_cid = sp_cid
+        self.sp_size = sp_size
+
+        # 默认值
+        self.final_type = "Single"
+        self.cluster_id = 0
+        self.size = 1
+        self.CropPath = None
+
+        # --- 字典兼容层 (让 UI 和 Exporter 无需修改代码) ---
+
+    def __getitem__(self, key):
+        return getattr(self, key)
+
+    def __setitem__(self, key, value):
+        setattr(self, key, value)
+
+    def get(self, key, default=None):
+        return getattr(self, key, default)
+
+    def copy(self):
+        # 快速浅拷贝
+        new_obj = DefectPoint(
+            self.gx, self.gy, self.ch, self.val, self.polarity,
+            self.ch_cid, self.ch_size, self.sp_cid, self.sp_size
+        )
+        new_obj.final_type = self.final_type
+        new_obj.cluster_id = self.cluster_id
+        new_obj.size = self.size
+        new_obj.CropPath = self.CropPath
+        return new_obj
+
+
 # 1. Numba 加速提取函数
 @jit(nopython=True)
 def _numba_extract_points(ys, xs, sub_img, bg, img_gray_val, step, offset_x, offset_y, mode_int, is_16bit):
     """
-    Numba 加速提取 (不再负责 Cluster ID，只负责提取原始信息)
+    Numba 加速提取
     """
     n = len(ys)
     res_gx = np.empty(n, dtype=np.int32)
@@ -84,7 +137,7 @@ class CoreAlgorithm:
         mode_int = 0 if mode == 'Dark' else 1
         is_16bit_bool = bool(is_16bit)
 
-        # 暂存所有点
+        # 🟢 暂存所有点 (现在存储 DefectPoint 对象，而非字典)
         raw_points = []
 
         # 全局计数器
@@ -123,83 +176,75 @@ class CoreAlgorithm:
                     step, offset_x, offset_y, mode_int, is_16bit
                 )
 
-                # 3. 计算同通道 Cluster (基于子图 Mask)
-                # 使用 float32 避免 filter2D 溢出 (255+255=510)
+                # 3. 计算同通道 Cluster (基于子图 Mask + filter2D)
                 mask_f = mask.astype(np.float32)
                 k_size = ch_dist if ch_dist > 0 else 1
                 if k_size % 2 == 0: k_size += 1
                 kernel = np.ones((k_size, k_size), np.float32)
 
-                # 计算密度: 如果 density > 255，说明除了自己还有别人
+                # 密度判定 > 255.5
                 density = cv2.filter2D(mask_f, -1, kernel, borderType=cv2.BORDER_CONSTANT)
 
-                # 生成连通域 (用于赋 ID)
-                # 这里依然使用 density > 0 来生成潜在区域，但在统计 Size 时会严格剔除孤立点
                 cluster_mask = (density > 0).astype(np.uint8)
                 num_labels, labels = cv2.connectedComponents(cluster_mask, connectivity=8)
 
-                # 统计 Valid Cluster Size
-                # 只有 density > 255 的点才算作“有效 Cluster 成员”
-                # density 的值大约是 255 * N (N是邻域内像素数)
-                # 我们使用 255.5 作为阈值，排除掉只有自己的情况
                 is_valid_member = (density > 255.5) & (mask > 0)
 
                 label_counts = {}
-                # 仅统计是有效成员的点
                 valid_labels = labels[is_valid_member]
                 if len(valid_labels) > 0:
                     label_counts = dict(zip(*np.unique(valid_labels, return_counts=True)))
 
-                # 建立 ID 映射
+                # 建立映射
                 local_to_global_id = {}
                 local_to_size = {}
                 for lbl, sz in label_counts.items():
-                    if sz > 1:  # 再次确认，只有成员数 > 1 才是 Cluster
+                    if sz > 1:
                         local_to_global_id[lbl] = global_ch_cid
                         global_ch_cid += 1
                         local_to_size[lbl] = sz
 
-                # 4. 回填数据
+                # 4. 回填数据 (🟢 使用 DefectPoint 对象)
                 for k in range(len(ys)):
                     py, px = ys[k], xs[k]
 
-                    # 只有当自己也是 Valid Member 时，才赋予 Cluster ID
-                    # 这解决了“我虽然在别人的光晕里，但我自己没邻居”的情况
                     my_density = density[py, px]
                     lbl = labels[py, px]
 
                     cid = 0
                     csize = 1
 
-                    if my_density > 255.5:  # 我有邻居
+                    if my_density > 255.5:
                         if lbl in local_to_global_id:
                             cid = local_to_global_id[lbl]
                             csize = local_to_size[lbl]
 
                     polarity = "Dark" if r_pol[k] else "Bright"
-                    raw_points.append({
-                        'gx': int(r_gx[k]),
-                        'gy': int(r_gy[k]),
-                        'ch': ch_idx,
-                        'val': int(r_val[k]),
-                        'polarity': polarity,
-                        'ch_cid': cid,
-                        'ch_size': csize,
-                        'sp_cid': 0, 'sp_size': 1
-                    })
+
+                    # 🟢 创建对象
+                    pt = DefectPoint(
+                        gx=int(r_gx[k]),
+                        gy=int(r_gy[k]),
+                        ch=ch_idx,
+                        val=int(r_val[k]),
+                        polarity=polarity,
+                        ch_cid=cid,
+                        ch_size=csize
+                    )
+                    raw_points.append(pt)
 
         final_points = []
 
         # ==========================================================
-        # Phase B: 全局 Cluster 计算 (循环外)
+        # Phase B: 全局 Cluster 计算
         # ==========================================================
         if raw_points:
-            # 1. 构建全局 Mask
-            mask_sp = np.zeros((h_img, w_img), dtype=np.float32)  # 直接用 float32
-            point_map = {}  # 快速查找点索引
-            for idx, p in enumerate(raw_points):
-                mask_sp[p['gy'], p['gx']] = 255.0
-                point_map[(p['gx'], p['gy'])] = idx
+            # 1. 构建全局 Mask (使用 float32)
+            mask_sp = np.zeros((h_img, w_img), dtype=np.float32)
+
+            # 使用对象属性访问，比 dict 快
+            for p in raw_points:
+                mask_sp[p.gy, p.gx] = 255.0
 
             # 2. 卷积计算
             k_size_sp = g_dist if g_dist > 0 else 1
@@ -213,25 +258,20 @@ class CoreAlgorithm:
             num_labels_sp, labels_sp = cv2.connectedComponents(cluster_mask_sp, connectivity=8)
 
             # 4. 统计 Valid Size
-            # 同样逻辑：只有 density > 255.5 的点才是有效 Cluster 成员
-            # 我们需要遍历 raw_points 来统计，因为 mask 上只有点的位置有值
-
             sp_label_counts = {}
             valid_cluster_members = []
 
             for p in raw_points:
-                d_val = density_sp[p['gy'], p['gx']]
-                lbl = labels_sp[p['gy'], p['gx']]
+                d_val = density_sp[p.gy, p.gx]
+                lbl = labels_sp[p.gy, p.gx]
 
-                if d_val > 255.5:  # 核心判定：我有邻居
+                if d_val > 255.5:  # 判定密度
                     valid_cluster_members.append((p, lbl))
                     sp_label_counts[lbl] = sp_label_counts.get(lbl, 0) + 1
 
             # 5. 建立 ID 映射
             sp_label_to_id = {}
             sp_label_to_size = {}
-
-            # 全局 ID 接在 Phase A 后面
             start_sp_id = global_ch_cid
 
             for lbl, sz in sp_label_counts.items():
@@ -240,43 +280,46 @@ class CoreAlgorithm:
                     start_sp_id += 1
                     sp_label_to_size[lbl] = sz
 
-            # 6. 回填数据
-            # 注意：只有在 valid_cluster_members 里的点才能获得 ID
-            # 其他点即使被连通域覆盖，也是 Single (因为它自己 Density <= 255)
+            # 6. 回填 Phase B 结果
             for p, lbl in valid_cluster_members:
                 if lbl in sp_label_to_id:
-                    p['sp_cid'] = sp_label_to_id[lbl]
-                    p['sp_size'] = sp_label_to_size[lbl]
+                    p.sp_cid = sp_label_to_id[lbl]
+                    p.sp_size = sp_label_to_size[lbl]
 
             # ==========================================================
-            # Phase C: 结果拆分
+            # Phase C: 结果拆分 (复制对象)
             # ==========================================================
             for p in raw_points:
-                is_ch_cluster = p['ch_size'] > 1
-                is_sp_cluster = p['sp_size'] > 1
+                is_ch_cluster = p.ch_size > 1
+                is_sp_cluster = p.sp_size > 1
 
                 if not is_ch_cluster and not is_sp_cluster:
+                    # Single
                     entry = p.copy()
-                    entry['final_type'] = "Single"
-                    entry['cluster_id'] = 0
-                    entry['size'] = 1
+                    entry.final_type = "Single"
+                    entry.cluster_id = 0
+                    entry.size = 1
                     final_points.append(entry)
                 else:
                     if is_ch_cluster:
+                        # Channel Cluster
                         entry = p.copy()
-                        entry['final_type'] = "Channel_Cluster"
-                        entry['cluster_id'] = p['ch_cid']
-                        entry['size'] = p['ch_size']
+                        entry.final_type = "Channel_Cluster"
+                        entry.cluster_id = p.ch_cid
+                        entry.size = p.ch_size
                         final_points.append(entry)
 
                     if is_sp_cluster:
+                        # Spatial Cluster
                         entry = p.copy()
-                        entry['final_type'] = "Spatial_Cluster"
-                        entry['cluster_id'] = p['sp_cid']
-                        entry['size'] = p['sp_size']
+                        entry.final_type = "Spatial_Cluster"
+                        entry.cluster_id = p.sp_cid
+                        entry.size = p.sp_size
                         final_points.append(entry)
 
-        final_points.sort(key=lambda x: (0 if x['cluster_id'] > 0 else 1, x['cluster_id']))
+        # 排序 (注意 key 的兼容性，DefectPoint 支持 __getitem__ 所以 x['cluster_id'] 和 x.cluster_id 都能用)
+        # 这里为了效率改为属性访问
+        final_points.sort(key=lambda x: (0 if x.cluster_id > 0 else 1, x.cluster_id))
 
         # 准备绘图
         vis_display = cv2.normalize(img_raw, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
@@ -294,14 +337,14 @@ class CoreAlgorithm:
         cluster_pts_to_draw = []
 
         for pt in final_points:
-            idx = (pt['gy'], pt['gx'])
-            if pt['cluster_id'] > 0:
+            idx = (pt.gy, pt.gx)
+            if pt.cluster_id > 0:
                 cluster_pts_to_draw.append(pt)
             else:
                 if idx not in drawn_singles:
-                    is_dark = pt['polarity'] == "Dark"
+                    is_dark = pt.polarity == "Dark"
                     color = [0, 255, 0] if not is_dark else [255, 0, 0]
-                    normal_pts_indices.append((pt['gy'], pt['gx']))
+                    normal_pts_indices.append((pt.gy, pt.gx))
                     normal_colors.append(color)
                     drawn_singles.add(idx)
 
@@ -313,26 +356,32 @@ class CoreAlgorithm:
         from collections import defaultdict
         groups = defaultdict(list)
         for pt in cluster_pts_to_draw:
-            groups[pt['cluster_id']].append(pt)
+            groups[pt.cluster_id].append(pt)
 
         for cid, group_pts in groups.items():
             if not group_pts: continue
-            ftype = group_pts[0]['final_type']
+            ftype = group_pts[0].final_type
 
             temp_mask = np.zeros((h_img, w_img), dtype=np.uint8)
-            gys = [p['gy'] for p in group_pts]
-            gxs = [p['gx'] for p in group_pts]
+            gys = [p.gy for p in group_pts]
+            gxs = [p.gx for p in group_pts]
             temp_mask[gys, gxs] = 255
 
-            # 画框时稍微膨胀一点以便看清
-            v_dist = 3
+            # 画框视觉膨胀
+            if ftype == 'Channel_Cluster':
+                v_dist = (ch_dist * step) if ch_dist > 0 else step
+            else:
+                v_dist = g_dist if g_dist > 0 else 3
+
+            if v_dist % 2 == 0: v_dist += 1
+
             kernel = np.ones((v_dist, v_dist), np.uint8)
             dilated = cv2.dilate(temp_mask, kernel, iterations=1)
             contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
             for cnt in contours:
                 x, y, w, h = cv2.boundingRect(cnt)
-                dark_count = sum(1 for p in group_pts if p['polarity'] == 'Dark')
+                dark_count = sum(1 for p in group_pts if p.polarity == 'Dark')
                 is_mostly_dark = (dark_count / len(group_pts) > 0.5)
 
                 if ftype == 'Channel_Cluster':
@@ -390,10 +439,11 @@ class CoreAlgorithm:
         cls_white_ids = set()
         cls_black_ids = set()
 
+        # 🟢 data 是 DefectPoint 对象列表
         for d in data:
-            coord = (d['gx'], d['gy'])
-            ftype = d['final_type']
-            polarity = d.get('polarity', 'Bright')
+            coord = (d.gx, d.gy)
+            ftype = d.final_type
+            polarity = d.polarity
 
             if polarity == 'Bright':
                 unique_white.add(coord)
@@ -401,7 +451,7 @@ class CoreAlgorithm:
                 unique_black.add(coord)
 
             if "Cluster" in ftype:
-                cid = d.get('cluster_id', 0)
+                cid = d.cluster_id
                 if cid > 0:
                     if polarity == 'Bright':
                         cls_white_ids.add(cid)

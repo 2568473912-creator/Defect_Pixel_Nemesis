@@ -1,5 +1,6 @@
 import os
 import sys
+import traceback  # 🟢 [新增]
 from pathlib import Path
 import cv2
 import numpy as np
@@ -32,6 +33,15 @@ from ui.widgets import (
 from ui.dialogs import (
     SingleExportDialog, BatchProcessDialog, BatchCropDialog
 )
+from utils.logger import log  # 🟢 [新增] 导入日志
+
+# 🟢 [新增] 全局异常钩子
+def exception_hook(exctype, value, traceback_obj):
+    """捕获未处理的异常，防止程序闪退"""
+    err_msg = "".join(traceback.format_exception(exctype, value, traceback_obj))
+    log.critical(f"Uncaught Exception:\n{err_msg}")
+    sys.__excepthook__(exctype, value, traceback_obj)
+
 # 1. 放入 CyberApp 类
 # ==========================================
 # 🖥️ UI (交互升级版)
@@ -116,13 +126,25 @@ class CyberApp(QMainWindow):
             self.file_list.setEnabled(False)
 
         params = self.get_params()
+        log.info(f"Triggering analysis for {path} with params: {params}")  # 🟢
         self.worker = SingleWorker(path, params)
 
         # 信号连接到刚刚修复的 wrapper
         self.worker.result_signal.connect(self.on_single_finished_wrapper)
-
+        # 🟢 [新增] 连接错误信号
+        self.worker.error_occurred.connect(self.on_analysis_error)
         self.worker.start()
 
+     # 🟢 [新增] 错误处理槽函数
+    def on_analysis_error(self, err_msg):
+        QApplication.restoreOverrideCursor()
+        self.btn_load.setText("🔄 RE-ANALYZE")
+        self.btn_load.setEnabled(True)
+        if hasattr(self, 'file_list'):
+            self.file_list.setEnabled(True)
+
+        log.error(f"UI received analysis error: {err_msg}")
+        QMessageBox.critical(self, "Processing Failed", err_msg)
     # [包装器] 分析完成后，除了原来的逻辑，还要恢复列表可点状态
     def on_single_finished_wrapper(self, vis_raw, vis_grid, data, img_raw):
         # 必须传递所有 3 个参数：原图、网格图、数据
@@ -140,6 +162,7 @@ class CyberApp(QMainWindow):
 
     def __init__(self):
         super().__init__()
+        log.info("Application Initializing...")  # 🟢
         self.setWindowTitle("Defect Pixel Nemesis // V3.0 by Klay Wei")
         self.resize(1600, 900)
 
@@ -184,6 +207,7 @@ class CyberApp(QMainWindow):
 
     # 🟢 [新增] 窗口关闭事件：自动保存参数到 config.ini
     def closeEvent(self, event):
+        log.info("Application Closing.")  # 🟢
         self.save_settings()
         super().closeEvent(event)
 
@@ -1376,4 +1400,17 @@ class CyberApp(QMainWindow):
 
         if hasattr(self, 'fov_box'):
             self.fov_box.setData(x_pts, y_pts)
+
+    # ==========================================
+    # 🟢 2. 程序入口 (放在文件最末尾)
+    # ==========================================
+if __name__ == "__main__":
+    # 🟢 [新增] 注册全局异常钩子
+    sys.excepthook = exception_hook
+
+    app = QApplication(sys.argv)
+    window = CyberApp()
+    window.show()
+    sys.exit(app.exec())
+
     pass

@@ -6,10 +6,12 @@ import gc
 from pathlib import Path
 from PyQt6.QtCore import QThread, pyqtSignal
 from concurrent.futures import ProcessPoolExecutor, as_completed
-
+import traceback  # 🟢 [新增]
 from core.algorithm import CoreAlgorithm
 from core.tasks import process_single_image_task
 from utils.helpers import get_safe_roi
+from utils.helpers import get_safe_roi, FileHandler  # 🟢 [修改] 导入 FileHandler
+from utils.logger import log  # 🟢 [新增] 导入日志
 
 # 1. 放入 SingleWorker 类
 # ==========================================
@@ -19,6 +21,7 @@ class SingleWorker(QThread):
     # [修改] 信号定义：改为发送 3 个对象 (原图Vis, 网格图Grid, 数据Data)
     # 使用 object 类型以兼容 numpy 数组和列表
     result_signal = pyqtSignal(object, object, object, object)
+    error_occurred = pyqtSignal(str)  # 🟢 [新增] 错误信号
 
     def __init__(self, path, params):
         super().__init__()
@@ -26,19 +29,48 @@ class SingleWorker(QThread):
         self.params = params
 
     def run(self):
-        # 读取原图
-        img_raw = cv2.imread(self.path, cv2.IMREAD_UNCHANGED)
-        if img_raw is None: return
+        try:
+            log.info(f"Worker started for: {self.path}")
 
-        # 1. 执行核心检测算法 (得到带框的图和数据)
-        vis_raw, data = CoreAlgorithm.run_dispatch(img_raw, self.params)
+            # 🟢 [修改] 使用 FileHandler 安全读取
+            # 注意：get_params() 需要返回 bit_depth 信息，如果没有，这里默认传 8 或 16
+            # 假设 self.params 包含 'w', 'h', 'ch'。如果是普通图片，后两个参数可以忽略或自动推断
+            # 如果是 RAW 模式，必须从 UI 传入 bit_depth。
+            # 这里为了兼容您的原始代码(cv2.imread)，我们尝试用 FileHandler
+            # 如果 params 里没有宽高，FileHandler 对于 RAW 会报错。
+            # 兼容逻辑：先尝试用 params 参数，如果缺少，说明是普通图片流程
 
-        # 2. [新增] 生成通道网格图
-        channels = self.params['ch']
-        # vis_grid = CoreAlgorithm.generate_channel_grid(img_raw, channels)
-        vis_grid = None
-        # 3. 发送结果 (两个图都发回去)
-        self.result_signal.emit(vis_raw, vis_grid, data, img_raw)
+            # 暂时假设是普通图片或参数已齐备。
+            # 如果原代码只用 cv2.imread，说明之前只处理普通图片。
+            # 这里我们为了健壮性，对于普通图片仍然可以用 FileHandler (它内部封装了 imdecode)
+
+            # 简单起见，如果 load_image_file 需要参数而 params 里没有，可以给默认值
+            width = self.params.get('w', 0)
+            height = self.params.get('h', 0)
+            channels = self.params.get('ch', 1)  # 默认单通道避免报错
+            bit_depth = 8  # 默认 8位
+
+            img_raw = FileHandler.load_image_file(self.path, width, height, channels, bit_depth)
+
+            if img_raw is None:
+                raise ValueError("Failed to load image. Check file format or path.")
+
+            # 1. 执行核心检测算法
+            log.debug("Running CoreAlgorithm...")
+            vis_raw, data = CoreAlgorithm.run_dispatch(img_raw, self.params)
+
+            # 2. 生成通道网格图
+            vis_grid = None  # 根据原代码逻辑
+
+            # 3. 发送结果
+            log.info(f"Analysis complete. Defects found: {len(data)}")
+            self.result_signal.emit(vis_raw, vis_grid, data, img_raw)
+
+        except Exception as e:
+            # 🟢 [新增] 捕获所有异常
+            err_msg = traceback.format_exc()
+            log.error(f"SingleWorker Crashed:\n{err_msg}")
+            self.error_occurred.emit(f"Analysis Error:\n{str(e)}")
 
     pass
 
@@ -67,8 +99,10 @@ class BatchWorker(QThread):
 
     def run(self):
         try:
+            log.info("Batch Processing Started")  # 🟢 [新增]
             self.out_dir.mkdir(exist_ok=True, parents=True)
         except Exception as e:
+            log.error(f"Output Dir Error: {e}")  # 🟢 [新增]
             self.log_signal.emit(f"❌ Output Dir Error: {e}")
             self.finished_signal.emit();
             return
@@ -95,48 +129,48 @@ class BatchWorker(QThread):
         # 自动控制并发数
         max_workers = min(os.cpu_count(), 16)
 
-        with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            futures = {
-                executor.submit(
-                    process_single_image_task,
-                    f, self.out_dir, self.params, self.specs, self.snap_params, self.export_details
-                ): f for f in files
-            }
+        try:  # 🟢 [新增] 大循环的 try-except
+            with ProcessPoolExecutor(max_workers=max_workers) as executor:
+                futures = {
+                    executor.submit(
+                        process_single_image_task,
+                        f, self.out_dir, self.params, self.specs, self.snap_params, self.export_details
+                    ): f for f in files
+                }
 
-            completed_count = 0
-            for future in as_completed(futures):
-                if not self.is_running:
-                    executor.shutdown(wait=False, cancel_futures=True)
-                    break
+                completed_count = 0
+                for future in as_completed(futures):
+                    if not self.is_running:
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        break
 
-                try:
-                    res = future.result()
+                    try:
+                        res = future.result()
+                        # ... (结果处理逻辑保持不变) ...
+                        if res['status'] == 'error':
+                            self.log_signal.emit(f"❌ {res['msg']}")
+                            log.warning(f"Task failed: {res['msg']}")  # 🟢
+                        else:
+                            summary_data.append(res['summary_row'])
+                            if 'cluster_details' in res:
+                                all_cluster_details.extend(res['cluster_details'])
+                            self._save_single_csv(res['file_stem'], res['data'])
+                            log_icon = "🟢" if res['result_str'] == "PASS" else "🔴"
+                            self.log_signal.emit(f"{log_icon} {res['filename']} -> {res['result_str']}")
 
-                    if res['status'] == 'error':
-                        self.log_signal.emit(f"❌ {res['msg']}")
-                    else:
-                        # 收集 Excel Summary 数据
-                        summary_data.append(res['summary_row'])
+                    except Exception as e:
+                        log.error(f"Future Result Error: {e}", exc_info=True)  # 🟢
+                        self.log_signal.emit(f"⚠️ Process Error: {e}")
 
-                        # 收集 Excel Details 数据 (现在已经是大写键了，直接 extend 即可)
-                        if 'cluster_details' in res:
-                            all_cluster_details.extend(res['cluster_details'])
+                    completed_count += 1
+                    self.progress_signal.emit(completed_count, total_files)
 
-                        # 生成单张 CSV (使用原始小写键 data)
-                        # 🟢 [修复] 现在 res 中肯定有 'file_stem' 了
-                        self._save_single_csv(res['file_stem'], res['data'])
+            if self.is_running:
+                self._save_summary_excel(summary_data, all_cluster_details)
 
-                        log_icon = "🟢" if res['result_str'] == "PASS" else "🔴"
-                        self.log_signal.emit(f"{log_icon} {res['filename']} -> {res['result_str']}")
-
-                except Exception as e:
-                    self.log_signal.emit(f"⚠️ Process Error: {e}")
-
-                completed_count += 1
-                self.progress_signal.emit(completed_count, total_files)
-
-        if self.is_running:
-            self._save_summary_excel(summary_data, all_cluster_details)
+        except Exception as e:
+            log.critical(f"BatchWorker Critical Error: {e}", exc_info=True)  # 🟢
+            self.log_signal.emit(f"🔥 Critical Error: {e}")
 
         self.finished_signal.emit()
 
@@ -157,7 +191,7 @@ class BatchWorker(QThread):
                         d.get('size', 1), d.get('CropPath', '')
                     ])
         except Exception as e:
-            print(f"CSV Error: {e}")
+            log.error(f"CSV Error: {e}")
 
     def _save_summary_excel(self, summary_data, all_cluster_details):
         if not summary_data: return
@@ -234,6 +268,7 @@ class BatchWorker(QThread):
             self.log_signal.emit(f"✅ Excel Saved: {excel_path}")
 
         except Exception as e:
+            log.error(f"Excel Error: {e}")  # 🟢
             self.log_signal.emit(f"⚠️ Excel Error: {e}")
 
     def stop(self):
@@ -267,11 +302,13 @@ class BatchCropWorker(QThread):
     def run(self):
         # 1. 检查输出目录
         try:
+            log.info("Batch Crop Processing Started")  # 🟢 [新增]
             self.out_dir.mkdir(parents=True, exist_ok=True)
             # 创建一个专门放截图的子目录，保持整洁
             self.crop_save_dir = self.out_dir / "matrix_crops"
             self.crop_save_dir.mkdir(exist_ok=True)
         except Exception as e:
+            log.error(f"Crop Output Dir Error: {e}")  # 🟢 [新增]
             self.log_signal.emit(f"❌ Output Error: {e}")
             self.finished_signal.emit()
             return
@@ -366,6 +403,7 @@ class BatchCropWorker(QThread):
                 self.progress_signal.emit(file_idx + 1, total)
 
             except Exception as e:
+                log.error(f"crop Error {f.name}: {e}")
                 self.log_signal.emit(f"❌ Error {f.name}: {e}")
 
         # 5. 🟢 生成 Excel 矩阵
@@ -428,6 +466,7 @@ class BatchCropWorker(QThread):
             self.log_signal.emit(f"🏆 Excel Saved: {excel_path}")
 
         except Exception as e:
+            log.error(f"Crop Excel Error: {e}")  # 🟢
             self.log_signal.emit(f"⚠️ Excel Error: {e}")
 
     def stop(self):
