@@ -164,7 +164,7 @@ class CyberApp(QMainWindow):
     def __init__(self):
         super().__init__()
         log.info("Application Initializing...")  # 🟢
-        self.setWindowTitle("Defect Pixel Nemesis // V3.0 by Klay Wei")
+        self.setWindowTitle("Defect Pixel Nemesis // V4.0 by Klay Wei")
         self.resize(1600, 900)
 
 
