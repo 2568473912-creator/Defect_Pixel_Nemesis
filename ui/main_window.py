@@ -553,7 +553,7 @@ class CyberApp(QMainWindow):
         self.lbl_result = QLabel("READY")
         self.lbl_result.setObjectName("ResultLabel")
         self.lbl_result.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_result.setFixedWidth(200)
+        self.lbl_result.setFixedWidth(280)
         self.lbl_result.setStyleSheet(
             "background-color: #1a1a1a; color: #666; border: 2px solid #444; border-radius: 6px; font-weight: bold; font-size: 11pt;")
         h_res_det.addWidget(self.lbl_result)
@@ -675,7 +675,7 @@ class CyberApp(QMainWindow):
         plot_item.showAxis('left', True)
 
         # 初始化雷达框
-        self.fov_box = pg.PlotCurveItem(pen=pg.mkPen('y', width=2, style=Qt.PenStyle.DashLine))
+        self.fov_box = pg.PlotCurveItem(pen=pg.mkPen('w', width=2, style=Qt.PenStyle.DashLine))
         self.graph.addItem(self.fov_box)
 
         # 初始化图例
@@ -832,20 +832,30 @@ class CyberApp(QMainWindow):
 
             # 3. 绘制散点图
         self.graph.clear()
-        # [修复] 仅当雷达框确实不在图中时才添加，消除 Warning
+        # [修复] 重新添加雷达框 (确保不重复)
         if hasattr(self, 'fov_box'):
-            # graph.getPlotItem().items 是当前所有图元的列表
             if self.fov_box not in self.graph.getPlotItem().items:
                 self.graph.addItem(self.fov_box)
 
-        # [修复] 重建图例 (Legend)
-        # 1. 移除旧图例
-        if hasattr(self, 'legend') and self.legend:
-            if self.legend.scene() is not None:
-                self.legend.scene().removeItem(self.legend)
-        # 2. 新建图例
+        # 👇👇👇 [核心修复] 强制重建图例 👇👇👇
+        plot_item = self.graph.getPlotItem()
+
+        # 1. 彻底清除旧图例的引用
+        if plot_item.legend:
+            try:
+                # 尝试从场景移除 (如果还没移除的话)
+                if plot_item.legend.scene():
+                    plot_item.legend.scene().removeItem(plot_item.legend)
+            except:
+                pass
+            # 🟢 关键：手动置空引用，欺骗 pyqtgraph 以为没有图例，从而强制创建新的
+            plot_item.legend = None
+
+            # 2. 创建全新图例
         self.legend = self.graph.addLegend(offset=(10, 10))
         self.legend.setScale(0.8)
+        self.legend.setBrush(pg.mkBrush((0, 0, 0, 150)))  # 可选：给图例加个半透明黑底，防止看不清
+        # 👆👆👆 [修复结束] 👆👆👆
         # ... (绘制时传入 name，这样图例会自动显示) ...
         # if spots_bright:
         #     setup_scatter(spots_bright, pg.mkBrush(0, 255, 0, 200), 'o', size=8, name="Bright")
