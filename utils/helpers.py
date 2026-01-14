@@ -198,8 +198,12 @@ class ExportHandler:
                         # 标记该 ID 已截图
                         if cid > 0:
                             seen_ids.add(cid)
+                pass  # 占位
 
-            row_data = d.copy()
+            if hasattr(d, 'to_dict'):
+                row_data = d.to_dict()
+            else:
+                row_data = d.copy()  # 兼容旧版如果是纯字典的情况
             row_data['CropPath'] = crop_path_str
             row_data['Filename'] = filename_stem
             row_data['Cluster ID'] = cid  # 确保 ID 被记录
