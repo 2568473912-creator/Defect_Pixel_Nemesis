@@ -15,6 +15,13 @@ def get_base_path():
         return sys._MEIPASS
     return os.path.abspath(".")
 
+def get_config_path():
+    """新增：用于获取配置文件路径，始终指向 EXE 所在目录"""
+    if getattr(sys, 'frozen', False):
+        # 如果是打包后的 EXE，返回 EXE 所在目录
+        return os.path.dirname(sys.executable)
+    # 开发环境
+    return os.path.abspath(".")
 
 BASE_DIR = get_base_path()
 
