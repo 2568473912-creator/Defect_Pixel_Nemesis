@@ -207,7 +207,8 @@ class ExportHandler:
             row_data['CropPath'] = crop_path_str
             row_data['Filename'] = filename_stem
             row_data['Cluster ID'] = cid  # 确保 ID 被记录
-            excel_details.append(row_data)
+            if "Cluster" in d['final_type']:
+                excel_details.append(row_data)
 
         # --- 写入 Excel ---
         try:

@@ -139,19 +139,20 @@ def process_single_image_task(f_path, out_dir, params, specs, snap_params, expor
                 # 🟢 [修复关键]
                 # 不要执行 d['Size'] = ... 或 d['ClusterID'] = ...
                 # 直接构建要返回的字典
-                excel_item = {
-                    "Filename": f_name,
-                    "Cluster ID": cid,  # 使用变量
-                    "CH": ch,
-                    "Type": ftype_str,
-                    "Polarity": pol_str,
-                    "X": gx,
-                    "Y": gy,
-                    "Val": val,
-                    "Size": size,  # 使用变量
-                    "CropPath": full_crop_path_str
-                }
-                saved_crops_for_excel.append(excel_item)
+                if is_cluster:
+                    excel_item = {
+                        "Filename": f_name,
+                        "Cluster ID": cid,  # 使用变量
+                        "CH": ch,
+                        "Type": ftype_str,
+                        "Polarity": pol_str,
+                        "X": gx,
+                        "Y": gy,
+                        "Val": val,
+                        "Size": size,  # 使用变量
+                        "CropPath": full_crop_path_str
+                    }
+                    saved_crops_for_excel.append(excel_item)
 
         # --- 5. 返回结果 ---
         return {
