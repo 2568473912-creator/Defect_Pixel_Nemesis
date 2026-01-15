@@ -9,21 +9,29 @@ from utils.logger import log  # 🟢 导入日志
 from PyQt6.QtWidgets import QDialog  # 部分 helper 可能用到
 
 
-# 1. 定义 BASE_DIR 和 get_base_path
 def get_base_path():
+    """
+    获取【资源文件】的基础路径 (图片、图标等静态资源)
+    如果是打包环境，返回临时解压目录 _MEIPASS
+    """
     if hasattr(sys, '_MEIPASS'):
         return sys._MEIPASS
     return os.path.abspath(".")
 
-def get_config_path():
-    """新增：用于获取配置文件路径，始终指向 EXE 所在目录"""
+def get_executable_dir():
+    """
+    获取【程序本身】所在的目录 (用于存放 config.ini, 输出报告等)
+    无论是开发环境还是打包环境，都指向 EXE/脚本 所在的真实文件夹
+    """
     if getattr(sys, 'frozen', False):
-        # 如果是打包后的 EXE，返回 EXE 所在目录
+        # 如果是打包后的 EXE
         return os.path.dirname(sys.executable)
-    # 开发环境
+    # 如果是 Python 脚本运行
     return os.path.abspath(".")
 
-BASE_DIR = get_base_path()
+# 定义两个基础变量供调用
+BASE_DIR = get_base_path()          # 用于读取内部资源
+EXE_DIR = get_executable_dir()      # 用于读写外部文件
 
 
 # 2. 放入 get_safe_roi 函数
